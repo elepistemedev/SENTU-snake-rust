@@ -2,6 +2,7 @@ pub mod app;
 pub mod champion_store;
 pub mod configs;
 pub mod dqn;
+pub mod dqn_dash;
 pub mod game;
 pub mod game_dqn;
 pub mod nn;
