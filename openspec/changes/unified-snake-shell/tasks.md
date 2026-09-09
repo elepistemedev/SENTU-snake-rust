@@ -22,14 +22,14 @@ STRICT TDD ACTIVE: test runner `cargo test`. Tasks marked **[RED-first]** start 
 
 ## Phase 3 — GA trainer view (DQN-style)
 
-- [ ] T3.1 `src/view_ga_train.rs` `GaTrainView` around `Simulation` seam: pacing (slow batch/frame + sleep, fast ≤50/frame), keys keep meaning; DQN-style single-grid + HUD (generation, gen max, best ever, elapsed, champ score/fitness/steps) default; `Tab` toggles advanced VizAdvanced dashboard; routes sim internal VS sub-state to the versus renderer (GA flavor).
-- [ ] T3.2 `src/pop.rs`: make best-net loader `pub` (no behavior change).
+- [x] T3.1 `src/view_ga_train.rs` `GaTrainView` around `Simulation` seam: pacing (slow batch/frame + sleep, fast ≤50/frame), keys keep meaning; DQN-style single-grid + HUD (generation, gen max, best ever, elapsed, champ score/fitness/steps) default; `Tab` toggles advanced VizAdvanced dashboard; routes sim internal VS sub-state to the versus renderer (GA flavor).
+- [x] T3.2 `src/pop.rs`: make best-net loader `pub` (no behavior change).
 
 ## Phase 4 — Versus views (DQN internal / GA internal / cross)
 
 - [x] T4.1 `src/view_dqn_versus.rs`: champion Net (memory/file) vs live policy Net (paused trainer q_network, else fresh greedy agent), flavor "CHAMPION"/"CURRENT", `record: None`; missing champion → message + Esc. **[RED-first]** pure part: which Nets are selected given trainer/champion presence.
-- [ ] T4.2 `src/view_ga_versus.rs`: GA champions from `sim_metadata.json` best/second-best (fallback `best_snake.json`), GA-default flavor incl. record; both missing → message.
-- [ ] T4.3 `src/view_cross_match.rs`: load `best_snake.json` + `dqn_champion.json`; flavor "GA"/"DQN", `record: None`; per-side missing-file messages (spec scenario).
+- [x] T4.2 `src/view_ga_versus.rs`: GA champions from `sim_metadata.json` best/second-best (fallback `best_snake.json`), GA-default flavor incl. record; both missing → message.
+- [x] T4.3 `src/view_cross_match.rs`: load `best_snake.json` + `dqn_champion.json`; flavor "GA"/"DQN", `record: None`; per-side missing-file messages (spec scenario).
 
 ## Phase 5 — Menu shell + wiring
 

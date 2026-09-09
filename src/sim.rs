@@ -55,6 +55,36 @@ pub struct Simulation {
     second_best_net_ever: Option<Net>,
 }
 
+/// Champions persisted for the standalone GA-versus arena.
+///
+/// Read from `sim_metadata.json` (best/second-best nets + all-time record)
+/// with a `best_snake.json` fallback for the best net when the metadata file
+/// is missing or lacks it. This is a passive snapshot of what a GA run left
+/// on disk — loading it never mutates simulation state.
+#[derive(Default)]
+pub struct GaChampions {
+    /// Best-ever net, when any persisted GA champion exists.
+    pub best: Option<Net>,
+    /// Second-best-ever net (only meaningful alongside `best`).
+    pub second_best: Option<Net>,
+    /// All-time best score, used as the GA versus "record to beat".
+    pub record: usize,
+}
+
+/// Load the persisted GA champions for a standalone versus arena: best + second
+/// best nets from `sim_metadata.json`, falling back to `best_snake.json` for the
+/// best net when the metadata lacks it. Missing or corrupt files degrade to no
+/// champions — never a panic.
+pub fn load_ga_champions() -> GaChampions {
+    let metadata = Simulation::load_metadata();
+    let best = metadata.best_net.or_else(Population::load_best_net);
+    GaChampions {
+        best,
+        second_best: metadata.second_best_net,
+        record: metadata.max_score_ever,
+    }
+}
+
 impl Default for Simulation {
     fn default() -> Self {
         Self::new()
@@ -275,7 +305,7 @@ impl Simulation {
         }
     }
 
-    fn draw_advanced(&self) {
+    pub fn draw_advanced(&self) {
         clear_background(BLACK);
 
         let top_games = self.pop.get_top_games(10);
