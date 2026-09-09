@@ -2,6 +2,7 @@
 //! Acciones de la serpiente desde una red neuronal
 
 use crate::nn::Net;
+use crate::utils::{relative_dir, rotate_vision_to_relative};
 use crate::*;
 
 #[derive(Clone)]
@@ -15,6 +16,9 @@ pub struct Game {
     pub is_complete: bool,
     no_food_steps: usize,
     pub num_steps: usize,
+    /// When true the brain is a DQN relative-action net (9-input, 3-output).
+    /// When false (default) the brain is a GA absolute-action net (12-input, 4-output).
+    brain_relative: bool,
 }
 
 impl Game {
@@ -32,6 +36,7 @@ impl Game {
             is_complete: false,
             no_food_steps: 0,
             num_steps: 0,
+            brain_relative: false,
         }
     }
 
@@ -60,33 +65,47 @@ impl Game {
     }
 
     fn get_brain_output(&self) -> FourDirs {
-        let vision = self.get_snake_vision();
-        let nn_out = self.brain.predict(&vision).pop().unwrap();
-        let max_index = nn_out
-            .iter()
-            .enumerate()
-            .max_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i)
-            .unwrap();
-        let mut dir = match max_index {
-            0 => FourDirs::Left,
-            1 => FourDirs::Right,
-            2 => FourDirs::Bottom,
-            _ => FourDirs::Top,
-        };
+        if self.brain_relative {
+            let abs = self.get_snake_vision();
+            let vision = rotate_vision_to_relative(&abs, self.dir);
+            let nn_out = self.brain.predict(&vision).pop().unwrap();
+            let max_index = nn_out
+                .iter()
+                .enumerate()
+                .max_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(i, _)| i)
+                .unwrap();
+            relative_dir(self.dir, max_index)
+        } else {
+            // Legacy GA path — byte-identical to pre-change.
+            let vision = self.get_snake_vision();
+            let nn_out = self.brain.predict(&vision).pop().unwrap();
+            let max_index = nn_out
+                .iter()
+                .enumerate()
+                .max_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(i, _)| i)
+                .unwrap();
+            let mut dir = match max_index {
+                0 => FourDirs::Left,
+                1 => FourDirs::Right,
+                2 => FourDirs::Bottom,
+                _ => FourDirs::Top,
+            };
 
-        if self.dir.is_horizontal() {
-            if dir.is_horizontal() && self.dir != dir {
-                dir = self.dir;
+            if self.dir.is_horizontal() {
+                if dir.is_horizontal() && self.dir != dir {
+            dir = self.dir;
+                }
             }
-        }
-        if self.dir.is_vertical() {
-            if dir.is_vertical() && self.dir != dir {
-                dir = self.dir;
+            if self.dir.is_vertical() {
+                if dir.is_vertical() && self.dir != dir {
+            dir = self.dir;
+                }
             }
-        }
 
-        dir
+            dir
+        }
     }
 
     fn get_snake_vision(&self) -> Vec<f64> {
@@ -162,6 +181,17 @@ impl Game {
     pub fn with_brain(new_brain: &Net) -> Self {
         let mut new_game = Self::new();
         new_game.brain = new_brain.clone();
+
+        new_game
+    }
+
+    /// Build a game whose brain is a DQN relative-action net (9-input,
+    /// 3-output): vision and actions are interpreted in the heading-relative
+    /// frame. Used by the versus/cross arena for DQN players.
+    pub fn with_relative_brain(new_brain: &Net) -> Self {
+        let mut new_game = Self::new();
+        new_game.brain = new_brain.clone();
+        new_game.brain_relative = true;
 
         new_game
     }
