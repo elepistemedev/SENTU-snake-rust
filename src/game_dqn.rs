@@ -2,6 +2,7 @@
 //! Single agent learning through experience
 
 use crate::dqn::{DQNAgent, Experience};
+use crate::utils::{relative_dir, rotate_vision_to_relative};
 use crate::*;
 
 pub struct GameDQN {
@@ -48,15 +49,14 @@ impl GameDQN {
         self.prev_distance = Self::calculate_distance(&self.head, &self.food);
     }
 
-    /// Current 12-input observation (4 directions × [wall-reciprocal, food
-    /// bit, body-reciprocal], direction order LEFT/RIGHT/BOTTOM/TOP matching
-    /// the action 0..3 mapping in [`GameDQN::step`]), as consumed by the
-    /// q-network — the same feature vector `step()` feeds action selection.
-    /// Thin read-only wrapper over the private `get_state` (design D-5): no
-    /// side effects — it never advances `steps` or mutates the board, and
-    /// `predict` always receives exactly 12 floats.
+    /// Current 9-input heading-relative observation (3 directions ×
+    /// [wall-reciprocal, food bit, body-reciprocal], direction order
+    /// forward / left-turn / right-turn relative to `self.dir`), as consumed
+    /// by the q-network — the same feature vector `step()` feeds action
+    /// selection. Thin read-only wrapper: it never advances `steps` or
+    /// mutates the board.
     pub fn observation(&self) -> Vec<f64> {
-        self.get_state()
+        rotate_vision_to_relative(&self.get_state(), self.dir)
     }
 
     pub fn step(&mut self) -> (f64, bool) {
@@ -64,23 +64,9 @@ impl GameDQN {
             return (0.0, true);
         }
 
-        let state = self.get_state();
+        let state = self.observation();
         let action = self.agent.select_action(&state);
-        
-        // Map action to direction
-        let new_dir = match action {
-            0 => FourDirs::Left,
-            1 => FourDirs::Right,
-            2 => FourDirs::Bottom,
-            _ => FourDirs::Top,
-        };
-        
-        // Prevent 180-degree turns
-        if !(self.dir.is_horizontal() && new_dir.is_horizontal() && self.dir != new_dir) &&
-           !(self.dir.is_vertical() && new_dir.is_vertical() && self.dir != new_dir) {
-            self.dir = new_dir;
-        }
-        
+        self.dir = relative_dir(self.dir, action);
         self.steps += 1;
         
         // Move snake
@@ -124,7 +110,7 @@ impl GameDQN {
             self.is_complete = true;
         }
         
-        let next_state = self.get_state();
+        let next_state = self.observation();
         
         // Store experience
         let exp = Experience {
@@ -215,74 +201,79 @@ impl GameDQN {
 mod tests {
     use super::*;
 
-    // --- observation accessor (design D-5, spec "live 12-input state without
-    // side effects") ----------------------------------------------------------
+    // --- observation: 9-input heading-relative view ----------------------------
 
     #[test]
-    fn observation_is_a_stable_12_input_view_without_side_effects() {
+    fn observation_is_a_stable_9_input_relative_view_without_side_effects() {
         let game = GameDQN::new();
         let steps_before = game.steps;
         let first = game.observation();
 
         assert_eq!(
             first.len(),
-            12,
-            "12 = 4 directions x [wall, food, body] per direction"
+            9,
+            "9 = 3 relative directions x [wall, food, body] per direction"
         );
-        // Documented order: for each of LEFT, RIGHT, BOTTOM, TOP (FourDirs
-        // order, matching GameDQN::step action 0..3) a (wall, food, body)
-        // triple.
-        for group in 0..4 {
+        // Groups: forward, left-turn, right-turn
+        for group in 0..3 {
             let wall = first[group * 3];
             let food = first[group * 3 + 1];
             let body = first[group * 3 + 2];
-            assert!(
-wall > 0.0 && wall <= 1.0,
-"wall reciprocal in (0,1], group {group}: {wall}"
-            );
-            assert!(
-food == 0.0 || food == 1.0,
-"food must be a 0.0/1.0 bit, group {group}"
-            );
-            assert!(
-body >= 0.0 && body <= 1.0,
-"body reciprocal in [0,1], group {group}: {body}"
-            );
+            assert!(wall > 0.0 && wall <= 1.0, "wall reciprocal in (0,1], group {group}");
+            assert!(food == 0.0 || food == 1.0, "food must be a 0.0/1.0 bit, group {group}");
+            assert!(body >= 0.0 && body <= 1.0, "body reciprocal in [0,1], group {group}");
         }
 
         let second = game.observation();
-        assert_eq!(
-            first, second,
-            "two calls without an intervening step must be identical"
-        );
-        assert_eq!(
-            game.steps, steps_before,
-            "observation must never advance the step counter"
-        );
-        assert!(!game.is_complete, "observation must not mutate the game state");
+        assert_eq!(first, second, "two calls without step must be identical");
+        assert_eq!(game.steps, steps_before, "observation must never advance steps");
+        assert!(!game.is_complete, "observation must not mutate game state");
     }
 
     #[test]
-    fn observation_places_food_in_the_matching_direction_group() {
+    fn observation_places_forward_food_in_first_group_when_heading_top() {
         let mut game = GameDQN::new();
-        // Deterministic setup: food exactly one cell LEFT of the head. LEFT is
-        // the first of the four documented direction groups.
-        game.food = Point::new(game.head.x - 1, game.head.y);
+        // Force heading Top so "forward" is the absolute TOP direction.
+        game.dir = FourDirs::Top;
+        // Place food exactly one cell forward (above the head).
+        game.food = Point::new(game.head.x, game.head.y - 1);
 
         let state = game.observation();
-        assert_eq!(
-            state[1], 1.0,
-            "LEFT-group food bit must be 1 with food one cell to the left"
-        );
-        // From the cell left of the head to the wall there are (head.x - 1)
-        // cells plus the initial count, so the reciprocal is 1 / head.x.
-        let expected_wall = 1.0 / game.head.x as f64;
+        // Forward group is indices 0..2; food bit at index 1.
+        assert_eq!(state[1], 1.0, "forward food bit must be 1 with food directly ahead");
+        // Wall reciprocal for forward: distance from cell above head to wall = head.y - 1 cells
+        let expected_wall = 1.0 / game.head.y as f64;
         assert!(
             (state[0] - expected_wall).abs() < 1e-9,
-            "LEFT wall reciprocal = 1/head.x, got {}",
+            "forward wall reciprocal = 1/head.y, got {}",
             state[0]
         );
-        // The RIGHT group (indices 3..=5) sees no food.
-        assert_eq!(state[4], 0.0, "food must not appear in the RIGHT group");
+        // Left-turn and right-turn groups see no food.
+        assert_eq!(state[4], 0.0, "left-turn food must be 0");
+        assert_eq!(state[7], 0.0, "right-turn food must be 0");
+    }
+
+    #[test]
+    fn relative_step_never_reverses_direction() {
+        // Because relative_dir maps 0..2 to forward/left/right, there is no
+        // backward action. After any number of steps the heading sequence must
+        // never contain an immediate 180-degree reversal.
+        let mut game = GameDQN::new();
+        let mut prev_dir = game.dir;
+        for _ in 0..50 {
+            let _ = game.step();
+            let new_dir = game.dir;
+            assert!(
+!(prev_dir.is_horizontal() && new_dir.is_horizontal() && prev_dir != new_dir)
+&& !(prev_dir.is_vertical() && new_dir.is_vertical() && prev_dir != new_dir),
+"180-degree reversal detected: {:?} -> {:?}",
+prev_dir,
+new_dir
+            );
+            if game.is_complete {
+break;
+            }
+            prev_dir = new_dir;
+        }
     }
 }
