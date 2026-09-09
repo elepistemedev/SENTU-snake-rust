@@ -87,6 +87,7 @@ credentials.*
 config.local.*
 best_snake.json
 sim_metadata.json
+dqn_champion.json
 
 # Subproyectos grandes (con su propio repo o artifacts entrenados)
 dqn/

@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+use crate::game::Game;
+use crate::nn::Net;
 use crate::pop::Population;
 use crate::viz_advanced::VizAdvanced;
 use crate::viz_vs::VizVS;
-use crate::game::Game;
-use crate::nn::Net;
 
 #[derive(Serialize, Deserialize)]
 struct SimMetadata {
@@ -22,9 +22,23 @@ struct SimMetadata {
     second_best_net: Option<Net>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SimMode {
     Training,
     VS,
+}
+
+/// Read-only metrics snapshot of a running `Simulation`, used to feed the
+/// DQN-style GA training HUD without owning any drawing.
+pub struct SimSnapshot<'a> {
+    pub gen_count: usize,
+    pub gen_max: usize,
+    pub best_ever: usize,
+    pub elapsed_secs: f32,
+    pub champ_score: usize,
+    pub champ_fitness: f32,
+    pub champ_steps: usize,
+    pub best_game: Option<&'a Game>,
 }
 
 pub struct Simulation {
@@ -41,10 +55,16 @@ pub struct Simulation {
     second_best_net_ever: Option<Net>,
 }
 
+impl Default for Simulation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Simulation {
     pub fn new() -> Self {
         let metadata = Self::load_metadata();
-        
+
         Self {
             gen_count: metadata.gen_count,
             pop: Population::new(),
@@ -90,38 +110,24 @@ impl Simulation {
         }
     }
 
-    pub fn update(&mut self, is_viz_enabled: bool, is_slow_mode: bool) {
+    pub fn update(&mut self, is_viz_enabled: bool, _is_slow_mode: bool) {
         match self.mode {
             SimMode::Training => {
-                let games_alive = self.pop.update();
-                if games_alive <= 0 {
-                    self.end_current_genration();
-                    self.start_new_generation();
-                    
-                    // Auto VS every 100 generations
-                    if self.gen_count % 100 == 0 && self.gen_count > 0 {
-                        self.toggle_vs_mode();
-                    }
-                }
+                self.tick_training();
 
                 if is_viz_enabled {
                     self.draw_advanced();
                 }
             }
             SimMode::VS => {
-                let mut both_complete = false;
-                
-                if let (Some(g1), Some(g2)) = (&mut self.vs_game1, &mut self.vs_game2) {
-                    g1.update();
-                    g2.update();
-                    
-                    both_complete = g1.is_complete && g2.is_complete;
-                    
-                    if is_viz_enabled {
+                let both_complete = self.step_vs_games();
+
+                if is_viz_enabled {
+                    if let (Some(g1), Some(g2)) = (&self.vs_game1, &self.vs_game2) {
                         self.viz_vs.draw(g1, g2, self.max_score_ever);
                     }
                 }
-                
+
                 // Auto return to training when both are dead
                 if both_complete {
                     self.mode = SimMode::Training;
@@ -129,6 +135,77 @@ impl Simulation {
                     self.vs_game2 = None;
                 }
             }
+        }
+    }
+
+    /// Advance training by one population batch tick: steps the live games
+    /// and, when a generation completes, closes it out, starts the next
+    /// generation, and honors the every-100-generations auto-VS cadence.
+    /// This is the logic half of the legacy `update()` training arm.
+    pub fn tick_training(&mut self) {
+        let games_alive = self.pop.update();
+        if games_alive == 0 {
+            self.end_current_genration();
+            self.start_new_generation();
+
+            // Auto VS every 100 generations
+            if self.gen_count.is_multiple_of(100) && self.gen_count > 0 {
+                self.toggle_vs_mode();
+            }
+        }
+    }
+
+    /// Advance the VS arena by one tick (each player moves once). When both
+    /// games are complete, the sim returns to Training automatically. This
+    /// is the logic half of the legacy `update()` VS arm.
+    pub fn tick_vs(&mut self) {
+        let both_complete = self.step_vs_games();
+        if both_complete {
+            self.mode = SimMode::Training;
+            self.vs_game1 = None;
+            self.vs_game2 = None;
+        }
+    }
+
+    /// Steps both VS games once and reports whether both finished.
+    fn step_vs_games(&mut self) -> bool {
+        if let (Some(g1), Some(g2)) = (&mut self.vs_game1, &mut self.vs_game2) {
+            g1.update();
+            g2.update();
+            g1.is_complete && g2.is_complete
+        } else {
+            false
+        }
+    }
+
+    /// Current sim mode.
+    pub fn mode(&self) -> SimMode {
+        self.mode
+    }
+
+    /// References to both VS arena games when a match is running, or `None`
+    /// while the sim is in Training mode.
+    pub fn vs_state(&self) -> Option<(&Game, &Game)> {
+        match (&self.vs_game1, &self.vs_game2) {
+            (Some(g1), Some(g2)) => Some((g1, g2)),
+            _ => None,
+        }
+    }
+
+    /// Read-only HUD metrics derived from the live population and the
+    /// all-time records, without mutating or drawing anything.
+    pub fn snapshot(&self) -> SimSnapshot<'_> {
+        let stats = self.pop.get_gen_summary();
+        let best_game = self.pop.get_top_games(1).first().copied();
+        SimSnapshot {
+            gen_count: self.gen_count,
+            gen_max: stats.max_score,
+            best_ever: self.max_score_ever,
+            elapsed_secs: stats.time_elapsed_secs,
+            champ_score: best_game.map_or(0, Game::score),
+            champ_fitness: best_game.map_or(0.0, Game::fitness),
+            champ_steps: best_game.map_or(0, |g| g.num_steps),
+            best_game,
         }
     }
 
@@ -147,7 +224,7 @@ impl Simulation {
                             net1.clone()
                         }
                     };
-                    
+
                     self.vs_game1 = Some(Game::with_brain(net1));
                     self.vs_game2 = Some(Game::with_brain(&net2));
                     self.mode = SimMode::VS;
@@ -175,7 +252,7 @@ impl Simulation {
     pub fn end_current_genration(&mut self) {
         let stats = self.pop.get_gen_summary();
         let current_score = stats.max_score;
-        
+
         if current_score > self.max_score_ever {
             // New best - shift rankings
             self.second_best_net_ever = self.best_net_ever.clone();
@@ -187,11 +264,12 @@ impl Simulation {
             self.second_best_net_ever = stats.best_net.clone();
             self.second_max_score_ever = current_score;
         }
-        
-        self.viz.update_generation(stats.time_elapsed_secs, stats.max_score);
-        
+
+        self.viz
+            .update_generation(stats.time_elapsed_secs, stats.max_score);
+
         // Save every 10 generations
-        if self.gen_count % 10 == 0 {
+        if self.gen_count.is_multiple_of(10) {
             self.pop.save_best_net();
             self.save_metadata();
         }
@@ -204,7 +282,7 @@ impl Simulation {
         if !top_games.is_empty() {
             let stats = self.pop.get_gen_summary();
             let best_game = top_games[0];
-            
+
             self.viz.draw(
                 &top_games,
                 self.gen_count,
