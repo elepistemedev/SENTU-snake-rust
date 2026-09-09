@@ -694,38 +694,35 @@ impl App {
             preview_colors.food,
         );
 
-        // Draw snake (head + 4 body segments)
-        let snake_cells = [
-            (5, 5), // head (facing Right)
-            (4, 5), // body 1
-            (3, 5), // body 2 (with preview digestion bulge!)
-            (3, 6), // body 3
-            (3, 7), // body 4
+        // Draw snake (head + 4 body segments with corner curve)
+        let snake_points = [
+            crate::utils::Point { x: 5, y: 5 }, // head (facing Right)
+            crate::utils::Point { x: 4, y: 5 }, // body 1 (straight horizontal)
+            crate::utils::Point { x: 3, y: 5 }, // body 2 (corner with preview digestion bulge!)
+            crate::utils::Point { x: 3, y: 6 }, // body 3 (straight vertical)
+            crate::utils::Point { x: 3, y: 7 }, // tail
         ];
-        for (idx, &(cx, cy)) in snake_cells.iter().enumerate() {
-            let seg_x = board_x + cx as f32 * cell_size;
-            let seg_y = board_y + cy as f32 * cell_size;
-            if idx == 0 {
-                crate::render_snake::draw_snake_head(
-                    seg_x,
-                    seg_y,
-                    cell_size,
-                    crate::utils::FourDirs::Right,
-                    preview_theme,
-                    preview_colors.head,
-                    0.0,
-                );
+        for (idx, pt) in snake_points.iter().enumerate() {
+            let seg_x = board_x + pt.x as f32 * cell_size;
+            let seg_y = board_y + pt.y as f32 * cell_size;
+            let color = if idx == 0 {
+                preview_colors.head
             } else {
-                let bulge = if idx == 2 { 0.35 } else { 0.0 };
-                crate::render_snake::draw_snake_body(
-                    seg_x,
-                    seg_y,
-                    cell_size,
-                    preview_theme,
-                    preview_colors.body,
-                    bulge,
-                );
-            }
+                preview_colors.body
+            };
+            let bulge = if idx == 2 { 0.35 } else { 0.0 };
+            crate::render_snake::draw_connected_segment(
+                &snake_points,
+                idx,
+                crate::utils::FourDirs::Right,
+                seg_x,
+                seg_y,
+                cell_size,
+                preview_theme,
+                color,
+                bulge,
+                0.0,
+            );
         }
 
         // Explanatory note inside preview

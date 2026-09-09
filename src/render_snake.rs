@@ -180,7 +180,329 @@ pub fn draw_apple(x: f32, y: f32, tile_size: f32, theme: GameTheme, color: Color
     );
 }
 
-/// Draws snake head: classic solid square for Retro, or organic rounded head with directional eyes for Arcade/Pleasant/Meadow.
+use crate::Point;
+
+/// Topological connectivity and shape of a snake body segment in the grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentKind {
+    /// Snake head pointing in heading direction.
+    Head(FourDirs),
+    /// Snake tail pointing away from the connected body.
+    Tail(FourDirs),
+    /// Straight segment spanning horizontally between left and right edges.
+    StraightHorizontal,
+    /// Straight segment spanning vertically between top and bottom edges.
+    StraightVertical,
+    /// 90-degree corner connecting top and right edges.
+    CornerTopRight,
+    /// 90-degree corner connecting top and left edges.
+    CornerTopLeft,
+    /// 90-degree corner connecting bottom and right edges.
+    CornerBottomRight,
+    /// 90-degree corner connecting bottom and left edges.
+    CornerBottomLeft,
+}
+
+/// Classifies the segment connection based on its neighbors in the snake body.
+pub fn classify_segment(body: &[Point], index: usize, heading: FourDirs) -> SegmentKind {
+    if index == 0 {
+        return SegmentKind::Head(heading);
+    }
+    let curr = body[index];
+    let prev = body[index - 1];
+
+    if index == body.len() - 1 {
+        // Tail: only connected to prev
+        let dx = curr.x - prev.x;
+        let dy = curr.y - prev.y;
+        let tail_dir = if dx > 0 {
+            FourDirs::Right
+        } else if dx < 0 {
+            FourDirs::Left
+        } else if dy > 0 {
+            FourDirs::Bottom
+        } else {
+            FourDirs::Top
+        };
+        return SegmentKind::Tail(tail_dir);
+    }
+
+    let next = body[index + 1];
+    let d_prev = (prev.x - curr.x, prev.y - curr.y);
+    let d_next = (next.x - curr.x, next.y - curr.y);
+
+    let has_top = d_prev == (0, -1) || d_next == (0, -1);
+    let has_bottom = d_prev == (0, 1) || d_next == (0, 1);
+    let has_left = d_prev == (-1, 0) || d_next == (-1, 0);
+    let has_right = d_prev == (1, 0) || d_next == (1, 0);
+
+    if has_left && has_right {
+        SegmentKind::StraightHorizontal
+    } else if has_top && has_bottom {
+        SegmentKind::StraightVertical
+    } else if has_top && has_right {
+        SegmentKind::CornerTopRight
+    } else if has_top && has_left {
+        SegmentKind::CornerTopLeft
+    } else if has_bottom && has_right {
+        SegmentKind::CornerBottomRight
+    } else if has_bottom && has_left {
+        SegmentKind::CornerBottomLeft
+    } else if has_left || has_right {
+        SegmentKind::StraightHorizontal
+    } else {
+        SegmentKind::StraightVertical
+    }
+}
+
+/// Draws snake segment with continuous edge-to-edge connectivity and curved corners.
+pub fn draw_snake_segment(
+    x: f32,
+    y: f32,
+    tile_size: f32,
+    kind: SegmentKind,
+    theme: GameTheme,
+    color: Color,
+    bulge_scale: f32,
+    head_scale: f32,
+) {
+    if theme == GameTheme::Retro {
+        draw_rectangle(x + 1.0, y + 1.0, tile_size - 2.0, tile_size - 2.0, color);
+        return;
+    }
+
+    let cx = x + tile_size * 0.5;
+    let cy = y + tile_size * 0.5;
+    let outline = theme.colors().outline;
+    let contour_w = 2.0;
+
+    match kind {
+        SegmentKind::Head(dir) => {
+            let size = (tile_size - 2.0) * (1.0 + head_scale);
+            let half = size * 0.5;
+            let hx = cx - half;
+            let hy = cy - half;
+
+            // Connect neck flush to the opposite edge
+            let neck_w = tile_size * 0.74;
+            let half_neck = neck_w * 0.5;
+            match dir {
+                FourDirs::Right => {
+                    draw_rectangle(x, cy - half_neck, cx - x, neck_w, color);
+                    if let Some(ol) = outline {
+                        draw_line(x, cy - half_neck, cx, cy - half_neck, contour_w, ol);
+                        draw_line(x, cy + half_neck, cx, cy + half_neck, contour_w, ol);
+                    }
+                }
+                FourDirs::Left => {
+                    draw_rectangle(cx, cy - half_neck, x + tile_size - cx, neck_w, color);
+                    if let Some(ol) = outline {
+                        draw_line(cx, cy - half_neck, x + tile_size, cy - half_neck, contour_w, ol);
+                        draw_line(cx, cy + half_neck, x + tile_size, cy + half_neck, contour_w, ol);
+                    }
+                }
+                FourDirs::Bottom => {
+                    draw_rectangle(cx - half_neck, y, neck_w, cy - y, color);
+                    if let Some(ol) = outline {
+                        draw_line(cx - half_neck, y, cx - half_neck, cy, contour_w, ol);
+                        draw_line(cx + half_neck, y, cx + half_neck, cy, contour_w, ol);
+                    }
+                }
+                FourDirs::Top => {
+                    draw_rectangle(cx - half_neck, cy, neck_w, y + tile_size - cy, color);
+                    if let Some(ol) = outline {
+                        draw_line(cx - half_neck, cy, cx - half_neck, y + tile_size, contour_w, ol);
+                        draw_line(cx + half_neck, cy, cx + half_neck, y + tile_size, contour_w, ol);
+                    }
+                }
+            }
+
+            // Head rounded base
+            if let Some(ol) = outline {
+                draw_circle(cx, cy, half + 1.5, ol);
+            }
+            draw_circle(cx, cy, half, color);
+
+            // Directional eyes
+            let (e1, e2) = compute_eye_offsets(dir, size);
+            for eye in [e1, e2] {
+                draw_circle(hx + eye.center_x, hy + eye.center_y, eye.radius, WHITE);
+                draw_circle(hx + eye.pupil_x, hy + eye.pupil_y, eye.pupil_radius, BLACK);
+                draw_circle(
+                    hx + eye.pupil_x - eye.pupil_radius * 0.3,
+                    hy + eye.pupil_y - eye.pupil_radius * 0.3,
+                    eye.pupil_radius * 0.35,
+                    WHITE,
+                );
+            }
+        }
+        SegmentKind::Tail(tail_dir) => {
+            let t = tile_size * 0.74 * (1.0 + bulge_scale);
+            let half_t = t * 0.5;
+
+            // Connects to the opposite edge and ends with a rounded cap at (cx, cy)
+            match tail_dir {
+                FourDirs::Right => {
+                    draw_rectangle(x, cy - half_t, cx - x, t, color);
+                    if let Some(ol) = outline {
+                        draw_line(x, cy - half_t, cx, cy - half_t, contour_w, ol);
+                        draw_line(x, cy + half_t, cx, cy + half_t, contour_w, ol);
+                        draw_circle(cx, cy, half_t + 1.0, ol);
+                    }
+                    draw_circle(cx, cy, half_t, color);
+                }
+                FourDirs::Left => {
+                    draw_rectangle(cx, cy - half_t, x + tile_size - cx, t, color);
+                    if let Some(ol) = outline {
+                        draw_line(cx, cy - half_t, x + tile_size, cy - half_t, contour_w, ol);
+                        draw_line(cx, cy + half_t, x + tile_size, cy + half_t, contour_w, ol);
+                        draw_circle(cx, cy, half_t + 1.0, ol);
+                    }
+                    draw_circle(cx, cy, half_t, color);
+                }
+                FourDirs::Bottom => {
+                    draw_rectangle(cx - half_t, y, t, cy - y, color);
+                    if let Some(ol) = outline {
+                        draw_line(cx - half_t, y, cx - half_t, cy, contour_w, ol);
+                        draw_line(cx + half_t, y, cx + half_t, cy, contour_w, ol);
+                        draw_circle(cx, cy, half_t + 1.0, ol);
+                    }
+                    draw_circle(cx, cy, half_t, color);
+                }
+                FourDirs::Top => {
+                    draw_rectangle(cx - half_t, cy, t, y + tile_size - cy, color);
+                    if let Some(ol) = outline {
+                        draw_line(cx - half_t, cy, cx - half_t, y + tile_size, contour_w, ol);
+                        draw_line(cx + half_t, cy, cx + half_t, y + tile_size, contour_w, ol);
+                        draw_circle(cx, cy, half_t + 1.0, ol);
+                    }
+                    draw_circle(cx, cy, half_t, color);
+                }
+            }
+        }
+        SegmentKind::StraightHorizontal => {
+            let t = tile_size * 0.74 * (1.0 + bulge_scale);
+            let half_t = t * 0.5;
+            draw_rectangle(x, cy - half_t, tile_size, t, color);
+            if let Some(ol) = outline {
+                draw_line(x, cy - half_t, x + tile_size, cy - half_t, contour_w, ol);
+                draw_line(x, cy + half_t, x + tile_size, cy + half_t, contour_w, ol);
+            }
+            if bulge_scale > 0.0 {
+                draw_circle(cx, cy, half_t * 1.25, color);
+                draw_circle(cx, cy, half_t * 0.65, Color::new(1.0, 1.0, 1.0, 0.35));
+            }
+        }
+        SegmentKind::StraightVertical => {
+            let t = tile_size * 0.74 * (1.0 + bulge_scale);
+            let half_t = t * 0.5;
+            draw_rectangle(cx - half_t, y, t, tile_size, color);
+            if let Some(ol) = outline {
+                draw_line(cx - half_t, y, cx - half_t, y + tile_size, contour_w, ol);
+                draw_line(cx + half_t, y, cx + half_t, y + tile_size, contour_w, ol);
+            }
+            if bulge_scale > 0.0 {
+                draw_circle(cx, cy, half_t * 1.25, color);
+                draw_circle(cx, cy, half_t * 0.65, Color::new(1.0, 1.0, 1.0, 0.35));
+            }
+        }
+        SegmentKind::CornerTopRight => {
+            let t = tile_size * 0.74 * (1.0 + bulge_scale);
+            let half_t = t * 0.5;
+            draw_rectangle(cx - half_t, y, t, cy - y + half_t, color);
+            draw_rectangle(cx - half_t, cy - half_t, x + tile_size - (cx - half_t), t, color);
+            draw_circle(cx, cy, half_t, color);
+
+            if let Some(ol) = outline {
+                draw_line(cx - half_t, y, cx - half_t, cy + half_t, contour_w, ol);
+                draw_line(cx - half_t, cy + half_t, x + tile_size, cy + half_t, contour_w, ol);
+                draw_line(cx + half_t, y, cx + half_t, cy - half_t, contour_w, ol);
+                draw_line(cx + half_t, cy - half_t, x + tile_size, cy - half_t, contour_w, ol);
+            }
+            if bulge_scale > 0.0 {
+                draw_circle(cx, cy, half_t * 1.25, color);
+                draw_circle(cx, cy, half_t * 0.65, Color::new(1.0, 1.0, 1.0, 0.35));
+            }
+        }
+        SegmentKind::CornerTopLeft => {
+            let t = tile_size * 0.74 * (1.0 + bulge_scale);
+            let half_t = t * 0.5;
+            draw_rectangle(cx - half_t, y, t, cy - y + half_t, color);
+            draw_rectangle(x, cy - half_t, cx + half_t - x, t, color);
+            draw_circle(cx, cy, half_t, color);
+
+            if let Some(ol) = outline {
+                draw_line(cx + half_t, y, cx + half_t, cy + half_t, contour_w, ol);
+                draw_line(x, cy + half_t, cx + half_t, cy + half_t, contour_w, ol);
+                draw_line(cx - half_t, y, cx - half_t, cy - half_t, contour_w, ol);
+                draw_line(x, cy - half_t, cx - half_t, cy - half_t, contour_w, ol);
+            }
+            if bulge_scale > 0.0 {
+                draw_circle(cx, cy, half_t * 1.25, color);
+                draw_circle(cx, cy, half_t * 0.65, Color::new(1.0, 1.0, 1.0, 0.35));
+            }
+        }
+        SegmentKind::CornerBottomRight => {
+            let t = tile_size * 0.74 * (1.0 + bulge_scale);
+            let half_t = t * 0.5;
+            draw_rectangle(cx - half_t, cy - half_t, t, y + tile_size - (cy - half_t), color);
+            draw_rectangle(cx - half_t, cy - half_t, x + tile_size - (cx - half_t), t, color);
+            draw_circle(cx, cy, half_t, color);
+
+            if let Some(ol) = outline {
+                draw_line(cx - half_t, y + tile_size, cx - half_t, cy - half_t, contour_w, ol);
+                draw_line(cx - half_t, cy - half_t, x + tile_size, cy - half_t, contour_w, ol);
+                draw_line(cx + half_t, y + tile_size, cx + half_t, cy + half_t, contour_w, ol);
+                draw_line(cx + half_t, cy + half_t, x + tile_size, cy + half_t, contour_w, ol);
+            }
+            if bulge_scale > 0.0 {
+                draw_circle(cx, cy, half_t * 1.25, color);
+                draw_circle(cx, cy, half_t * 0.65, Color::new(1.0, 1.0, 1.0, 0.35));
+            }
+        }
+        SegmentKind::CornerBottomLeft => {
+            let t = tile_size * 0.74 * (1.0 + bulge_scale);
+            let half_t = t * 0.5;
+            draw_rectangle(cx - half_t, cy - half_t, t, y + tile_size - (cy - half_t), color);
+            draw_rectangle(x, cy - half_t, cx + half_t - x, t, color);
+            draw_circle(cx, cy, half_t, color);
+
+            if let Some(ol) = outline {
+                draw_line(cx + half_t, y + tile_size, cx + half_t, cy - half_t, contour_w, ol);
+                draw_line(x, cy - half_t, cx + half_t, cy - half_t, contour_w, ol);
+                draw_line(cx - half_t, y + tile_size, cx - half_t, cy + half_t, contour_w, ol);
+                draw_line(x, cy + half_t, cx - half_t, cy + half_t, contour_w, ol);
+            }
+            if bulge_scale > 0.0 {
+                draw_circle(cx, cy, half_t * 1.25, color);
+                draw_circle(cx, cy, half_t * 0.65, Color::new(1.0, 1.0, 1.0, 0.35));
+            }
+        }
+    }
+}
+
+/// Draws one segment of the snake connecting seamlessly with adjacent segments.
+pub fn draw_connected_segment(
+    body: &[Point],
+    index: usize,
+    heading: FourDirs,
+    x: f32,
+    y: f32,
+    tile_size: f32,
+    theme: GameTheme,
+    color: Color,
+    bulge_scale: f32,
+    head_scale: f32,
+) {
+    if theme == GameTheme::Retro {
+        draw_rectangle(x + 1.0, y + 1.0, tile_size - 2.0, tile_size - 2.0, color);
+        return;
+    }
+    let kind = classify_segment(body, index, heading);
+    draw_snake_segment(x, y, tile_size, kind, theme, color, bulge_scale, head_scale);
+}
+
+/// Backward-compatible wrapper for drawing isolated head.
 pub fn draw_snake_head(
     x: f32,
     y: f32,
@@ -190,43 +512,19 @@ pub fn draw_snake_head(
     color: Color,
     head_scale: f32,
 ) {
-    if theme == GameTheme::Retro {
-        draw_rectangle(x + 1.0, y + 1.0, tile_size - 2.0, tile_size - 2.0, color);
-        return;
-    }
-
-    let size = (tile_size - 2.0) * (1.0 + head_scale);
-    let cx = x + tile_size * 0.5;
-    let cy = y + tile_size * 0.5;
-    let hx = cx - size * 0.5;
-    let hy = cy - size * 0.5;
-
-    // Optional illustrated dark contour outline (Meadow theme)
-    if let Some(outline) = theme.colors().outline {
-        draw_circle(cx, cy, size * 0.54, outline);
-    }
-
-    // Head base (smooth organic circle)
-    draw_circle(cx, cy, size * 0.50, color);
-
-    // Directional eyes
-    let (e1, e2) = compute_eye_offsets(dir, size);
-    for eye in [e1, e2] {
-        // Eye sclera (white)
-        draw_circle(hx + eye.center_x, hy + eye.center_y, eye.radius, WHITE);
-        // Eye pupil (black)
-        draw_circle(hx + eye.pupil_x, hy + eye.pupil_y, eye.pupil_radius, BLACK);
-        // Eye reflection glint
-        draw_circle(
-            hx + eye.pupil_x - eye.pupil_radius * 0.3,
-            hy + eye.pupil_y - eye.pupil_radius * 0.3,
-            eye.pupil_radius * 0.35,
-            WHITE,
-        );
-    }
+    draw_snake_segment(
+        x,
+        y,
+        tile_size,
+        SegmentKind::Head(dir),
+        theme,
+        color,
+        0.0,
+        head_scale,
+    );
 }
 
-/// Draws snake body segment: classic solid square for Retro, or rounded segment with swallow bulge for Arcade/Pleasant/Meadow.
+/// Backward-compatible wrapper for drawing isolated body.
 pub fn draw_snake_body(
     x: f32,
     y: f32,
@@ -235,30 +533,16 @@ pub fn draw_snake_body(
     color: Color,
     bulge_scale: f32,
 ) {
-    if theme == GameTheme::Retro {
-        draw_rectangle(x + 1.0, y + 1.0, tile_size - 2.0, tile_size - 2.0, color);
-        return;
-    }
-
-    let size = (tile_size - 2.0) * (1.0 + bulge_scale);
-    let cx = x + tile_size * 0.5;
-    let cy = y + tile_size * 0.5;
-
-    let outline = theme.colors().outline;
-
-    if bulge_scale > 0.0 {
-        // Digestion wave bulge (enlarged with inner digestion highlight)
-        if let Some(outline_color) = outline {
-            draw_circle(cx, cy, size * 0.56, outline_color);
-        }
-        draw_circle(cx, cy, size * 0.52, color);
-        draw_circle(cx, cy, size * 0.28, Color::new(1.0, 1.0, 1.0, 0.35));
-    } else {
-        if let Some(outline_color) = outline {
-            draw_circle(cx, cy, size * 0.52, outline_color);
-        }
-        draw_circle(cx, cy, size * 0.48, color);
-    }
+    draw_snake_segment(
+        x,
+        y,
+        tile_size,
+        SegmentKind::StraightHorizontal,
+        theme,
+        color,
+        bulge_scale,
+        0.0,
+    );
 }
 
 #[cfg(test)]
@@ -336,4 +620,30 @@ mod tests {
         assert!(e1_left.center_x < e1_right.center_x);
         assert!(e1_left.pupil_x < e1_right.pupil_x);
     }
+
+    #[test]
+    fn segment_classification_identifies_straight_and_corners() {
+        use crate::Point;
+
+        // Snake shape:
+        // (10, 5) [Head Right]
+        // (9, 5)  [Straight Horizontal]
+        // (8, 5)  [Corner Bottom-Right: connects to (9,5) right and (8,6) bottom]
+        // (8, 6)  [Straight Vertical]
+        // (8, 7)  [Tail Bottom: points Down]
+        let body = vec![
+            Point::new(10, 5),
+            Point::new(9, 5),
+            Point::new(8, 5),
+            Point::new(8, 6),
+            Point::new(8, 7),
+        ];
+
+        assert_eq!(classify_segment(&body, 0, FourDirs::Right), SegmentKind::Head(FourDirs::Right));
+        assert_eq!(classify_segment(&body, 1, FourDirs::Right), SegmentKind::StraightHorizontal);
+        assert_eq!(classify_segment(&body, 2, FourDirs::Right), SegmentKind::CornerBottomRight);
+        assert_eq!(classify_segment(&body, 3, FourDirs::Right), SegmentKind::StraightVertical);
+        assert_eq!(classify_segment(&body, 4, FourDirs::Right), SegmentKind::Tail(FourDirs::Bottom));
+    }
 }
+

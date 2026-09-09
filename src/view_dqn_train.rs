@@ -287,27 +287,19 @@ impl DqnTrainView {
         for (i, segment) in self.game.body.iter().enumerate() {
             let seg_x = offset_x + segment.x as f32 * tile_size;
             let seg_y = offset_y + segment.y as f32 * tile_size;
-            if i == 0 {
-                crate::render_snake::draw_snake_head(
-                    seg_x,
-                    seg_y,
-                    tile_size,
-                    self.game.dir,
-                    theme,
-                    colors.head,
-                    self.game.swallow.head_scale(),
-                );
-            } else {
-                let bulge = self.game.swallow.bulge_at(i);
-                crate::render_snake::draw_snake_body(
-                    seg_x,
-                    seg_y,
-                    tile_size,
-                    theme,
-                    colors.body,
-                    bulge,
-                );
-            }
+            let color = if i == 0 { colors.head } else { colors.body };
+            crate::render_snake::draw_connected_segment(
+                &self.game.body,
+                i,
+                self.game.dir,
+                seg_x,
+                seg_y,
+                tile_size,
+                theme,
+                color,
+                self.game.swallow.bulge_at(i),
+                self.game.swallow.head_scale(),
+            );
         }
 
         // Grid lines

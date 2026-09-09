@@ -132,28 +132,20 @@ impl VizAdvanced {
                 let seg_x = x + segment.x as f32 * tile_size;
                 let seg_y = y + segment.y as f32 * tile_size;
                 if rank == 0 {
-                    // Best snake uses active theme with directional eyes / swallow bulges
-                    if i == 0 {
-                        crate::render_snake::draw_snake_head(
-                            seg_x,
-                            seg_y,
-                            tile_size,
-                            game.dir,
-                            theme,
-                            colors.head,
-                            game.swallow.head_scale(),
-                        );
-                    } else {
-                        let bulge = game.swallow.bulge_at(i);
-                        crate::render_snake::draw_snake_body(
-                            seg_x,
-                            seg_y,
-                            tile_size,
-                            theme,
-                            colors.body,
-                            bulge,
-                        );
-                    }
+                    // Best snake uses active theme with continuous body / directional eyes / swallow bulges
+                    let color = if i == 0 { colors.head } else { colors.body };
+                    crate::render_snake::draw_connected_segment(
+                        &game.body,
+                        i,
+                        game.dir,
+                        seg_x,
+                        seg_y,
+                        tile_size,
+                        theme,
+                        color,
+                        game.swallow.bulge_at(i),
+                        game.swallow.head_scale(),
+                    );
                 } else {
                     // Others: gray ghosts with decreasing opacity
                     let alpha = 0.4 - (rank as f32 * 0.03);
