@@ -271,27 +271,43 @@ impl DqnTrainView {
 
         let (tile_size, offset_x, offset_y) = self.grid_layout();
 
-        let theme = crate::theme::load_theme().colors();
+        let theme = crate::theme::load_theme();
+        let colors = theme.colors();
 
         // Food
-        draw_rectangle(
+        crate::render_snake::draw_apple(
             offset_x + self.game.food.x as f32 * tile_size,
             offset_y + self.game.food.y as f32 * tile_size,
             tile_size,
-            tile_size,
-            theme.food,
+            theme,
+            colors.food,
         );
 
         // Snake
         for (i, segment) in self.game.body.iter().enumerate() {
-            let color = if i == 0 { theme.head } else { theme.body };
-            draw_rectangle(
-                offset_x + segment.x as f32 * tile_size,
-                offset_y + segment.y as f32 * tile_size,
-                tile_size,
-                tile_size,
-                color,
-            );
+            let seg_x = offset_x + segment.x as f32 * tile_size;
+            let seg_y = offset_y + segment.y as f32 * tile_size;
+            if i == 0 {
+                crate::render_snake::draw_snake_head(
+                    seg_x,
+                    seg_y,
+                    tile_size,
+                    self.game.dir,
+                    theme,
+                    colors.head,
+                    self.game.swallow.head_scale(),
+                );
+            } else {
+                let bulge = self.game.swallow.bulge_at(i);
+                crate::render_snake::draw_snake_body(
+                    seg_x,
+                    seg_y,
+                    tile_size,
+                    theme,
+                    colors.body,
+                    bulge,
+                );
+            }
         }
 
         // Grid lines

@@ -145,7 +145,7 @@ fn draw_panel(x: f32, y: f32, w: f32, h: f32, title: &str) {
 /// live snake is drawn (head `(0.3,0.9,0.3)`, body `(0.2,0.7,0.2)`, the
 /// reference's best-snake style) — DQN has no top-N population, so there is NO
 /// ghost/rank loop (proposal success-criterion divergence).
-fn draw_grid(game: &GameDQN, screen_h: f32, theme: crate::theme::ThemeColors) {
+fn draw_grid(game: &GameDQN, screen_h: f32, theme: crate::theme::GameTheme) {
     let grid_size = screen_h - 340.0; // Dynamic size based on screen height
     let x = 20.0;
     let y = 20.0;
@@ -165,29 +165,42 @@ fn draw_grid(game: &GameDQN, screen_h: f32, theme: crate::theme::ThemeColors) {
         draw_line(x, line_y, x + grid_size, line_y, 1.0, Color::new(0.15, 0.15, 0.15, 1.0));
     }
 
+    let colors = theme.colors();
+
     // Food (single live game)
-    draw_rectangle(
-        x + game.food.x as f32 * tile_size + 2.0,
-        y + game.food.y as f32 * tile_size + 2.0,
-        tile_size - 4.0,
-        tile_size - 4.0,
-        theme.food,
+    crate::render_snake::draw_apple(
+        x + game.food.x as f32 * tile_size,
+        y + game.food.y as f32 * tile_size,
+        tile_size,
+        theme,
+        colors.food,
     );
 
     // The one live snake
     for (i, segment) in game.body.iter().enumerate() {
-        let segment_color = if i == 0 {
-            theme.head
+        let seg_x = x + segment.x as f32 * tile_size;
+        let seg_y = y + segment.y as f32 * tile_size;
+        if i == 0 {
+            crate::render_snake::draw_snake_head(
+                seg_x,
+                seg_y,
+                tile_size,
+                game.dir,
+                theme,
+                colors.head,
+                game.swallow.head_scale(),
+            );
         } else {
-            theme.body
-        };
-        draw_rectangle(
-            x + segment.x as f32 * tile_size + 1.0,
-            y + segment.y as f32 * tile_size + 1.0,
-            tile_size - 2.0,
-            tile_size - 2.0,
-            segment_color,
-        );
+            let bulge = game.swallow.bulge_at(i);
+            crate::render_snake::draw_snake_body(
+                seg_x,
+                seg_y,
+                tile_size,
+                theme,
+                colors.body,
+                bulge,
+            );
+        }
     }
 }
 
@@ -565,17 +578,17 @@ fn draw_stats_panels(
 /// reference order — left grid + model info, center network, right
 /// stats/charts. Borrows only `&GameDQN`, the view's two scalars and the ring.
 pub fn draw(game: &GameDQN, episode: usize, best_score: usize, history: &EpisodeHistory) {
-    let theme = crate::theme::load_theme().colors();
+    let theme = crate::theme::load_theme();
     draw_with_theme(game, episode, best_score, history, theme);
 }
 
-/// Variant of [`draw`] accepting an explicit [`ThemeColors`] palette.
+/// Variant of [`draw`] accepting an explicit [`GameTheme`].
 pub fn draw_with_theme(
     game: &GameDQN,
     episode: usize,
     best_score: usize,
     history: &EpisodeHistory,
-    theme: crate::theme::ThemeColors,
+    theme: crate::theme::GameTheme,
 ) {
     let screen_w = screen_width();
     let screen_h = screen_height();

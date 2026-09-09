@@ -680,35 +680,46 @@ impl App {
 
         // Draw food
         let food_pos = (8, 3);
-        draw_rectangle(
-            board_x + food_pos.0 as f32 * cell_size + 1.0,
-            board_y + food_pos.1 as f32 * cell_size + 1.0,
-            cell_size - 2.0,
-            cell_size - 2.0,
+        crate::render_snake::draw_apple(
+            board_x + food_pos.0 as f32 * cell_size,
+            board_y + food_pos.1 as f32 * cell_size,
+            cell_size,
+            preview_theme,
             preview_colors.food,
         );
 
         // Draw snake (head + 4 body segments)
         let snake_cells = [
-            (5, 5), // head
+            (5, 5), // head (facing Right)
             (4, 5), // body 1
-            (3, 5), // body 2
+            (3, 5), // body 2 (with preview digestion bulge!)
             (3, 6), // body 3
             (3, 7), // body 4
         ];
         for (idx, &(cx, cy)) in snake_cells.iter().enumerate() {
-            let color = if idx == 0 {
-                preview_colors.head
+            let seg_x = board_x + cx as f32 * cell_size;
+            let seg_y = board_y + cy as f32 * cell_size;
+            if idx == 0 {
+                crate::render_snake::draw_snake_head(
+                    seg_x,
+                    seg_y,
+                    cell_size,
+                    crate::utils::FourDirs::Right,
+                    preview_theme,
+                    preview_colors.head,
+                    0.0,
+                );
             } else {
-                preview_colors.body
-            };
-            draw_rectangle(
-                board_x + cx as f32 * cell_size + 1.0,
-                board_y + cy as f32 * cell_size + 1.0,
-                cell_size - 2.0,
-                cell_size - 2.0,
-                color,
-            );
+                let bulge = if idx == 2 { 0.35 } else { 0.0 };
+                crate::render_snake::draw_snake_body(
+                    seg_x,
+                    seg_y,
+                    cell_size,
+                    preview_theme,
+                    preview_colors.body,
+                    bulge,
+                );
+            }
         }
 
         // Explanatory note inside preview

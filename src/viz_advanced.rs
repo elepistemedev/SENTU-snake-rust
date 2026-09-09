@@ -113,45 +113,63 @@ impl VizAdvanced {
             return;
         }
 
-        let theme = crate::theme::load_theme().colors();
+        let theme = crate::theme::load_theme();
+        let colors = theme.colors();
 
         // Food
         let best_game = games[0];
-        draw_rectangle(
-            x + best_game.food.x as f32 * tile_size + 2.0,
-            y + best_game.food.y as f32 * tile_size + 2.0,
-            tile_size - 4.0,
-            tile_size - 4.0,
-            theme.food,
+        crate::render_snake::draw_apple(
+            x + best_game.food.x as f32 * tile_size,
+            y + best_game.food.y as f32 * tile_size,
+            tile_size,
+            theme,
+            colors.food,
         );
 
         // Draw all snakes (reverse order so best is on top)
         for (rank, game) in games.iter().enumerate().rev() {
             for (i, segment) in game.body.iter().enumerate() {
-                let segment_color = if rank == 0 {
-                    // Best snake uses active theme
+                let seg_x = x + segment.x as f32 * tile_size;
+                let seg_y = y + segment.y as f32 * tile_size;
+                if rank == 0 {
+                    // Best snake uses active theme with directional eyes / swallow bulges
                     if i == 0 {
-                        theme.head
+                        crate::render_snake::draw_snake_head(
+                            seg_x,
+                            seg_y,
+                            tile_size,
+                            game.dir,
+                            theme,
+                            colors.head,
+                            game.swallow.head_scale(),
+                        );
                     } else {
-                        theme.body
+                        let bulge = game.swallow.bulge_at(i);
+                        crate::render_snake::draw_snake_body(
+                            seg_x,
+                            seg_y,
+                            tile_size,
+                            theme,
+                            colors.body,
+                            bulge,
+                        );
                     }
                 } else {
                     // Others: gray ghosts with decreasing opacity
                     let alpha = 0.4 - (rank as f32 * 0.03);
-                    if i == 0 {
+                    let segment_color = if i == 0 {
                         Color::new(0.7, 0.7, 0.7, alpha) // Ghost head
                     } else {
                         Color::new(0.5, 0.5, 0.5, alpha * 0.7) // Ghost body
-                    }
-                };
-                
-                draw_rectangle(
-                    x + segment.x as f32 * tile_size + 1.0,
-                    y + segment.y as f32 * tile_size + 1.0,
-                    tile_size - 2.0,
-                    tile_size - 2.0,
-                    segment_color,
-                );
+                    };
+                    draw_rectangle(
+                        seg_x + 1.0,
+                        seg_y + 1.0,
+                        tile_size - 2.0,
+                        tile_size - 2.0,
+                        segment_color,
+                    );
+                }
             }
         }
     }

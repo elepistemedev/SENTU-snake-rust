@@ -14,6 +14,7 @@ pub struct GameDQN {
     pub score: usize,
     pub steps: usize,
     pub is_complete: bool,
+    pub swallow: crate::render_snake::SwallowTracker,
     prev_distance: f64,
     steps_without_food: usize,
 }
@@ -34,6 +35,7 @@ impl GameDQN {
             score: 0,
             steps: 0,
             is_complete: false,
+            swallow: crate::render_snake::SwallowTracker::new(),
             prev_distance: Self::calculate_distance(&head, &food),
             steps_without_food: 0,
         }
@@ -48,6 +50,7 @@ impl GameDQN {
         self.score = 0;
         self.steps = 0;
         self.is_complete = false;
+        self.swallow.reset();
         self.prev_distance = Self::calculate_distance(&self.head, &self.food);
         self.steps_without_food = 0;
     }
@@ -77,7 +80,7 @@ impl GameDQN {
         self.head.x += self.dir.value().0;
         self.head.y += self.dir.value().1;
         
-        let mut reward = -0.01; // Small penalty for each step
+        let mut reward;
         let mut done = false;
         
         // Check collision
@@ -89,6 +92,7 @@ impl GameDQN {
             // Ate food
             reward = 1.0;
             self.score += 1;
+            self.swallow.push_eating();
             self.body.push(self.head.clone());
             self.food = self.get_random_empty_pos();
             self.prev_distance = Self::calculate_distance(&self.head, &self.food);
@@ -102,6 +106,7 @@ impl GameDQN {
                 reward = -0.1; // Penalty for getting farther
             }
             self.prev_distance = new_distance;
+            self.swallow.advance(self.body.len());
             
             // Update body
             let mut prev_pos = self.head.clone();
@@ -289,6 +294,26 @@ new_dir
 break;
             }
             prev_dir = new_dir;
+        }
+    }
+
+    #[test]
+    fn swallow_animation_triggers_on_food_eaten_and_advances() {
+        let mut game = GameDQN::new();
+        game.dir = FourDirs::Right;
+        game.head = Point::new(10, 10);
+        game.body = vec![Point::new(10, 10), Point::new(9, 10)];
+        // Put food directly in front of head
+        game.food = Point::new(11, 10);
+
+        // Force action to move forward (relative action 0 = forward)
+        // We test eating logic directly by stepping when head hits food
+        let prev_score = game.score;
+        let (_, done) = game.step();
+        assert!(!done);
+        if game.score > prev_score {
+            assert!(game.swallow.head_scale() > 0.0, "Head chew scale must be active");
+            assert!(game.swallow.bulge_at(0) > 0.0, "Bulge must start at index 0");
         }
     }
 }

@@ -14,6 +14,7 @@ pub struct Game {
     pub brain: Net,
 
     pub is_complete: bool,
+    pub swallow: crate::render_snake::SwallowTracker,
     no_food_steps: usize,
     pub num_steps: usize,
     /// When true the brain is a DQN relative-action net (9-input, 3-output).
@@ -34,6 +35,7 @@ impl Game {
             dir: FourDirs::get_rand_dir(),
             brain: Net::new(),
             is_complete: false,
+            swallow: crate::render_snake::SwallowTracker::new(),
             no_food_steps: 0,
             num_steps: 0,
             brain_relative: false,
@@ -199,9 +201,11 @@ impl Game {
     fn handle_food_collision(&mut self) {
         if self.head != self.food {
             self.no_food_steps += 1;
+            self.swallow.advance(self.body.len());
             return;
         }
 
+        self.swallow.push_eating();
         self.body.push(Point::new(self.head.x, self.head.y));
         self.food = self.get_random_empty_pos();
         self.no_food_steps = 0;
