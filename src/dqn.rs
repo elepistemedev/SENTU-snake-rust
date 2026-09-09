@@ -5,13 +5,16 @@ use rand::Rng;
 use crate::nn::Net;
 use crate::*;
 
-const REPLAY_BUFFER_SIZE: usize = 10000;
-const BATCH_SIZE: usize = 32;
-const GAMMA: f64 = 0.99;
-const LEARNING_RATE: f64 = 0.001;
-const EPSILON_START: f64 = 1.0;
-const EPSILON_END: f64 = 0.01;
-const EPSILON_DECAY: f64 = 0.995;
+// DQN hyperparameters are `pub` (design D-6): the dashboard's model-info
+// panel displays the real constants the agent is constructed with. Values are
+// pinned by `hyperparameter_constants_keep_their_pre_change_values` below.
+pub const REPLAY_BUFFER_SIZE: usize = 10000;
+pub const BATCH_SIZE: usize = 32;
+pub const GAMMA: f64 = 0.99;
+pub const LEARNING_RATE: f64 = 0.001;
+pub const EPSILON_START: f64 = 1.0;
+pub const EPSILON_END: f64 = 0.01;
+pub const EPSILON_DECAY: f64 = 0.995;
 
 #[derive(Clone)]
 pub struct Experience {
@@ -151,5 +154,25 @@ impl DQNAgent {
 
     pub fn get_epsilon(&self) -> f64 {
         self.epsilon
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Approval guards for the visibility-only seam (design D-6 / spec
+    // "visibility-only seams leave DQN behavior pinned"): the dashboard reads
+    // the very same constants the agent is constructed with, so their values
+    // are pinned here. No logic change anywhere in this module.
+    #[test]
+    fn hyperparameter_constants_keep_their_pre_change_values() {
+        assert_eq!(REPLAY_BUFFER_SIZE, 10000);
+        assert_eq!(BATCH_SIZE, 32);
+        assert_eq!(GAMMA, 0.99);
+        assert_eq!(LEARNING_RATE, 0.001);
+        assert_eq!(EPSILON_START, 1.0);
+        assert_eq!(EPSILON_END, 0.01);
+        assert_eq!(EPSILON_DECAY, 0.995);
     }
 }

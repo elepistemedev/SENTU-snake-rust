@@ -7,11 +7,11 @@
 //!   (the legacy driver's 50-tick cap). A running sim-internal VS sub-state
 //!   forces slow mode, exactly as the driver forced slow while
 //!   `sim.is_vs_mode()` was true.
-//! * Rendering: default is a single centered grid (the current best snake, via
-//!   `Simulation::snapshot`) plus a text HUD. `Tab` (via
-//!   [`GaTrainView::toggle_advanced`]) switches to the pre-existing `VizAdvanced`
-//!   dashboard, which is drawn through the small public
-//!   [`Simulation::draw_advanced`] accessor — that dashboard is untouched.
+//! * Rendering: default is the pre-existing `VizAdvanced` dashboard via
+//!   [`Simulation::draw_advanced`] — byte-identical to the original `main`
+//!   app's viz mode. `Tab` (via [`GaTrainView::toggle_advanced`]) toggles to
+//!   the compact DQN-style HUD (current best snake grid + text HUD), and `Tab`
+//!   again returns to the dashboard.
 //! * While the sim's internal VS sub-state runs, the view renders the two games
 //!   side-by-side through `VizVS::draw_flavored` with the GA-default flavor
 //!   (byte-identical to the legacy VS output); the sim keeps auto-returning to
@@ -51,9 +51,9 @@ pub fn frame_tick_budget(slow_requested: bool, vs_active: bool) -> usize {
 /// Which renderer draws the current frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GaRenderTarget {
-    /// DQN-style single grid + text HUD (the default).
+    /// DQN-style single grid + text HUD (`Tab`-gated compact alternative).
     Hud,
-    /// The pre-existing `VizAdvanced` dashboard (`Tab`-gated).
+    /// The pre-existing `VizAdvanced` dashboard (the default).
     Advanced,
     /// The side-by-side versus arena for the sim's internal VS sub-state.
     Versus,
@@ -80,18 +80,20 @@ pub struct GaTrainView {
     sim: Simulation,
     /// User pacing request (`Space`): `true` = one batch per frame + sleep.
     slow: bool,
-    /// Advanced `VizAdvanced` dashboard toggle (`Tab`). Default off = DQN-style.
+    /// Advanced `VizAdvanced` dashboard toggle (`Tab`). Default on = the
+    /// dashboard (design D-8, like the original `main` app).
     advanced: bool,
 }
 
 impl GaTrainView {
     /// Start a GA training session. Defaults to slow pacing (legacy default) and
-    /// the DQN-style HUD (AD-6: `Tab` toggles the advanced dashboard).
+    /// the advanced `VizAdvanced` dashboard (design D-8: `Tab` toggles to the
+    /// compact DQN-style HUD).
     pub fn new() -> Self {
         Self {
             sim: Simulation::new(),
             slow: true,
-            advanced: false,
+            advanced: true,
         }
     }
 
@@ -312,7 +314,7 @@ impl GaTrainView {
 
 #[cfg(test)]
 mod tests {
-    use super::{frame_tick_budget, render_target, GaRenderTarget};
+    use super::{frame_tick_budget, render_target, GaRenderTarget, GaTrainView};
     use crate::sim::SimMode;
 
     // --- frame_tick_budget: pacing pure seam -----------------------------------
@@ -352,5 +354,49 @@ mod tests {
             GaRenderTarget::Advanced
         );
         assert_eq!(render_target(false, SimMode::Training), GaRenderTarget::Hud);
+    }
+
+    // --- Slice A: advanced-dashboard default flip (design D-8) -----------------
+
+    #[test]
+    fn fresh_ga_train_view_defaults_to_the_advanced_dashboard() {
+        // Construction is read-only w.r.t. sim metadata files (Simulation::new
+        // only loads); no tick/pacing behavior is touched.
+        let view = GaTrainView::new();
+        assert!(
+            view.advanced_enabled(),
+            "a fresh GA train session must open on the advanced VizAdvanced dashboard"
+        );
+        assert_eq!(
+            render_target(view.advanced_enabled(), SimMode::Training),
+            GaRenderTarget::Advanced
+        );
+        assert_eq!(
+            view.mode(),
+            SimMode::Training,
+            "construction must not perturb the sim mode"
+        );
+    }
+
+    #[test]
+    fn ga_tab_toggles_off_the_advanced_default_and_back_without_perturbing_the_sim() {
+        let mut view = GaTrainView::new();
+        assert!(view.advanced_enabled(), "fresh entry is on the advanced dashboard");
+        view.toggle_advanced();
+        assert!(
+            !view.advanced_enabled(),
+            "one Tab -> compact DQN-style HUD"
+        );
+        assert_eq!(render_target(false, view.mode()), GaRenderTarget::Hud);
+        view.toggle_advanced();
+        assert!(
+            view.advanced_enabled(),
+            "a second Tab returns to the advanced dashboard"
+        );
+        assert_eq!(
+            view.mode(),
+            SimMode::Training,
+            "Tab toggling must never perturb the sim mode"
+        );
     }
 }

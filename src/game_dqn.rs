@@ -48,6 +48,17 @@ impl GameDQN {
         self.prev_distance = Self::calculate_distance(&self.head, &self.food);
     }
 
+    /// Current 12-input observation (4 directions × [wall-reciprocal, food
+    /// bit, body-reciprocal], direction order LEFT/RIGHT/BOTTOM/TOP matching
+    /// the action 0..3 mapping in [`GameDQN::step`]), as consumed by the
+    /// q-network — the same feature vector `step()` feeds action selection.
+    /// Thin read-only wrapper over the private `get_state` (design D-5): no
+    /// side effects — it never advances `steps` or mutates the board, and
+    /// `predict` always receives exactly 12 floats.
+    pub fn observation(&self) -> Vec<f64> {
+        self.get_state()
+    }
+
     pub fn step(&mut self) -> (f64, bool) {
         if self.is_complete {
             return (0.0, true);
@@ -190,12 +201,88 @@ impl GameDQN {
     fn get_random_empty_pos(&self) -> Point {
         let mut pt = Point::rand();
         let mut tries = 0;
-        
+            
         while tries < 10 && self.body.contains(&pt) {
             pt = Point::rand();
             tries += 1;
         }
-        
+            
         pt
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- observation accessor (design D-5, spec "live 12-input state without
+    // side effects") ----------------------------------------------------------
+
+    #[test]
+    fn observation_is_a_stable_12_input_view_without_side_effects() {
+        let game = GameDQN::new();
+        let steps_before = game.steps;
+        let first = game.observation();
+
+        assert_eq!(
+            first.len(),
+            12,
+            "12 = 4 directions x [wall, food, body] per direction"
+        );
+        // Documented order: for each of LEFT, RIGHT, BOTTOM, TOP (FourDirs
+        // order, matching GameDQN::step action 0..3) a (wall, food, body)
+        // triple.
+        for group in 0..4 {
+            let wall = first[group * 3];
+            let food = first[group * 3 + 1];
+            let body = first[group * 3 + 2];
+            assert!(
+wall > 0.0 && wall <= 1.0,
+"wall reciprocal in (0,1], group {group}: {wall}"
+            );
+            assert!(
+food == 0.0 || food == 1.0,
+"food must be a 0.0/1.0 bit, group {group}"
+            );
+            assert!(
+body >= 0.0 && body <= 1.0,
+"body reciprocal in [0,1], group {group}: {body}"
+            );
+        }
+
+        let second = game.observation();
+        assert_eq!(
+            first, second,
+            "two calls without an intervening step must be identical"
+        );
+        assert_eq!(
+            game.steps, steps_before,
+            "observation must never advance the step counter"
+        );
+        assert!(!game.is_complete, "observation must not mutate the game state");
+    }
+
+    #[test]
+    fn observation_places_food_in_the_matching_direction_group() {
+        let mut game = GameDQN::new();
+        // Deterministic setup: food exactly one cell LEFT of the head. LEFT is
+        // the first of the four documented direction groups.
+        game.food = Point::new(game.head.x - 1, game.head.y);
+
+        let state = game.observation();
+        assert_eq!(
+            state[1], 1.0,
+            "LEFT-group food bit must be 1 with food one cell to the left"
+        );
+        // From the cell left of the head to the wall there are (head.x - 1)
+        // cells plus the initial count, so the reciprocal is 1 / head.x.
+        let expected_wall = 1.0 / game.head.x as f64;
+        assert!(
+            (state[0] - expected_wall).abs() < 1e-9,
+            "LEFT wall reciprocal = 1/head.x, got {}",
+            state[0]
+        );
+        // The RIGHT group (indices 3..=5) sees no food.
+        assert_eq!(state[4], 0.0, "food must not appear in the RIGHT group");
     }
 }
