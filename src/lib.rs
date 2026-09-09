@@ -8,6 +8,7 @@ pub mod pop;
 pub mod sim;
 pub mod stream;
 pub mod utils;
+pub mod versus;
 pub mod viz;
 pub mod viz_advanced;
 pub mod viz_vs;
