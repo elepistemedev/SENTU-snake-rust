@@ -15,6 +15,10 @@ pub const LEARNING_RATE: f64 = 0.001;
 pub const EPSILON_START: f64 = 1.0;
 pub const EPSILON_END: f64 = 0.01;
 pub const EPSILON_DECAY: f64 = 0.995;
+pub const DQN_INP_LAYER_SIZE: usize = 9;
+pub const DQN_HIDDEN_LAYER_SIZE: usize = 32;
+pub const DQN_OUTPUT_LAYER_SIZE: usize = 3;
+pub const DQN_ARCH: [usize; 3] = [DQN_INP_LAYER_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE];
 pub const TARGET_UPDATE_INTERVAL: usize = 100;
 pub const LOSS_EMA_ALPHA: f64 = 0.05;
 
@@ -100,7 +104,7 @@ pub struct DQNAgent {
 
 impl DQNAgent {
     pub fn new() -> Self {
-        let q_network = Net::new();
+        let q_network = Net::new_with_sizes(&DQN_ARCH);
         let target_network = q_network.clone();
         
         Self {
@@ -119,7 +123,7 @@ impl DQNAgent {
         
         // Epsilon-greedy
         if rng.gen::<f64>() < self.epsilon {
-            rng.gen_range(0..OUTPUT_LAYER_SIZE)
+            rng.gen_range(0..DQN_OUTPUT_LAYER_SIZE)
         } else {
             let q_values = self.q_network.predict(state).pop().unwrap();
             q_values
@@ -227,6 +231,9 @@ mod tests {
         assert_eq!(EPSILON_DECAY, 0.995);
         assert_eq!(TARGET_UPDATE_INTERVAL, 100);
         assert_eq!(LOSS_EMA_ALPHA, 0.05);
+        assert_eq!(DQN_INP_LAYER_SIZE, 9);
+        assert_eq!(DQN_HIDDEN_LAYER_SIZE, 32);
+        assert_eq!(DQN_OUTPUT_LAYER_SIZE, 3);
     }
 
     // --- Slice dqn-training-metrics: consts puros y helpers -------------------
@@ -261,13 +268,13 @@ mod tests {
     // --- Slice dqn-training-metrics: agent instrumentation ---------------------
 
     /// Experiencia sintética válida: estado del tamaño de entrada de la red
-    /// (`INP_LAYER_SIZE`), recompensa positiva para que el error TD sea no nulo.
+    /// (`DQN_INP_LAYER_SIZE`), recompensa positiva para que el error TD sea no nulo.
     fn synth_experience() -> Experience {
         Experience {
-            state: vec![0.0; crate::configs::INP_LAYER_SIZE],
+            state: vec![0.0; DQN_INP_LAYER_SIZE],
             action: 0,
             reward: 1.0,
-            next_state: vec![0.0; crate::configs::INP_LAYER_SIZE],
+            next_state: vec![0.0; DQN_INP_LAYER_SIZE],
             done: false,
         }
     }
@@ -308,5 +315,33 @@ mod tests {
             agent.train();
         }
         assert_eq!(agent.target_updates(), 2, "second sync at 2 * INTERVAL steps");
+    }
+
+    #[test]
+    fn dqn_arch_constants_are_pinned() {
+        assert_eq!(DQN_INP_LAYER_SIZE, 9);
+        assert_eq!(DQN_HIDDEN_LAYER_SIZE, 32);
+        assert_eq!(DQN_OUTPUT_LAYER_SIZE, 3);
+        assert_eq!(DQN_ARCH, [9, 32, 3]);
+    }
+
+    #[test]
+    fn dqn_agent_net_matches_arch_and_predicts_three_outputs() {
+        let agent = DQNAgent::new();
+        assert_eq!(agent.q_network.n_inputs(), 9);
+        assert!(agent.q_network.matches_arch(&[9, 32, 3]));
+        let out = agent.q_network.predict(&vec![0.0; 9]);
+        let final_out = out.last().unwrap();
+        assert_eq!(final_out.len(), 3, "DQN agent must output 3 Q-values");
+    }
+
+    #[test]
+    fn select_action_never_exceeds_relative_action_space() {
+        let mut agent = DQNAgent::new();
+        let state = vec![0.0; 9];
+        for _ in 0..30 {
+            let action = agent.select_action(&state);
+            assert!(action < 3, "action must be inside 0..DQN_OUTPUT_LAYER_SIZE");
+        }
     }
 }
