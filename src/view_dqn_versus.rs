@@ -125,7 +125,7 @@ impl DqnVersusView {
             },
             DqnVersusPlayers::ChampionVsLive { champion, live } => Self {
                 inner: DqnVersusInner::Match {
-                    match_: VersusMatch::new(champion, live, dqn_flavor(false)),
+                    match_: VersusMatch::new_relative(champion, live, dqn_flavor(false)),
                     live_is_fresh: false,
                 },
             },
@@ -133,7 +133,7 @@ impl DqnVersusView {
                 let fresh_net = DQNAgent::new().q_network;
                 Self {
                     inner: DqnVersusInner::Match {
-                        match_: VersusMatch::new(champion, fresh_net, dqn_flavor(true)),
+                        match_: VersusMatch::new_relative(champion, fresh_net, dqn_flavor(true)),
                         live_is_fresh: true,
                     },
                 }
@@ -296,7 +296,8 @@ mod tests {
 
     #[test]
     fn view_falls_back_to_fresh_agent_and_runs_to_a_winner() {
-        let champion = Net::new();
+        // Both players are relative-action DQN brains (9-in, 3-out).
+        let champion = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
         let mut view = DqnVersusView::new(Some(champion), None);
         assert_eq!(view.message(), None, "a champion exists, so a match starts");
         assert!(
@@ -318,8 +319,9 @@ mod tests {
 
     #[test]
     fn view_with_live_policy_is_not_fresh_and_runs_to_a_winner() {
-        let champion = Net::new();
-        let live = Net::new();
+        // Both players are relative-action DQN brains (9-in, 3-out).
+        let champion = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
+        let live = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
         let mut view = DqnVersusView::new(Some(champion), Some(live));
         assert_eq!(view.message(), None);
         assert!(

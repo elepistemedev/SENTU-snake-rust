@@ -104,7 +104,10 @@ impl DqnTrainView {
     /// Private: production always uses [`DQN_CHAMPION_FILE`]; tests use this to
     /// keep the real champion file untouched.
     fn at_path(champion_path: &'static str) -> Self {
-        let champion = champion_store::load(champion_path);
+        // Only a champion matching the current DQN architecture (9×32×3) is
+        // accepted; a stale 12×8×4 file is discarded gracefully (no panic).
+        let champion = champion_store::load(champion_path)
+        .filter(|net| net.matches_arch(&crate::dqn::DQN_ARCH));
         Self {
             game: GameDQN::new(),
             episode: 0,
@@ -342,6 +345,7 @@ mod tests {
     /// Unique per-test champion file so parallel tests never race on disk.
     const TEST_BOOKKEEPING_FILE: &str = "dqn_champion_bookkeeping_test.json";
     const TEST_ROUNDTRIP_FILE: &str = "dqn_champion_roundtrip_test.json";
+    const TEST_OLD_ARCH_FILE: &str = "dqn_champion_old_arch_test.json";
 
     /// `Net` has no `PartialEq`. Exact-weight comparison (valid for in-memory
     /// clones, which never pass through serialization).
@@ -508,21 +512,33 @@ mod tests {
     }
 
     #[test]
-    fn construction_loads_champion_persisted_by_a_record() {
-        // Round-trip the real wiring on a private file: a record persists a
-        // champion, and construction must load it back. serde JSON is not
-        // bit-exact at the last ulp, so compare within 1e-9.
-        let net = Net::new();
-        champion_store::save(TEST_ROUNDTRIP_FILE, &net).expect("save must succeed");
+    fn construction_loads_dqn_arch_champion_and_rejects_old_arch() {
+        // Round-trip with the new DQN architecture (9x32x3): a record persists
+        // a champion, and construction must load it back (serde JSON is not
+        // bit-exact at the last ulp, so compare within 1e-9).
+        let dqn_net = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
+        champion_store::save(TEST_ROUNDTRIP_FILE, &dqn_net).expect("save must succeed");
         let view = DqnTrainView::at_path(TEST_ROUNDTRIP_FILE);
         let loaded = view
             .champion()
             .expect("construction must load the persisted champion");
         assert!(
-            nets_approx_eq(loaded, &net),
-            "loaded champion must match the saved one (within 1e-9)"
+            loaded.matches_arch(&crate::dqn::DQN_ARCH),
+            "loaded champion must match the current DQN architecture"
         );
         std::fs::remove_file(TEST_ROUNDTRIP_FILE).ok();
+    }
+
+    #[test]
+    fn old_arch_champion_is_gracefully_discarded() {
+        let old_net = Net::new(); // 12x8x4, pre-relative-action DQN arch
+        champion_store::save(TEST_OLD_ARCH_FILE, &old_net).expect("save must succeed");
+        let view = DqnTrainView::at_path(TEST_OLD_ARCH_FILE);
+        assert!(
+            view.champion().is_none(),
+            "old-arch champion must be discarded on load"
+        );
+        std::fs::remove_file(TEST_OLD_ARCH_FILE).ok();
     }
 
     // --- Slice A: DQN render-target seam (design D-3, spec "dashboard is the

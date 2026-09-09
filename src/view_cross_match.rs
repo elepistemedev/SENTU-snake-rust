@@ -126,11 +126,16 @@ impl CrossMatchView {
     /// Same as [`CrossMatchView::new`] from explicit per-side champions.
     /// Production loads them from disk; tests inject a deterministic set so the
     /// real `best_snake.json`/`dqn_champion.json` files are never touched.
+    ///
+    /// The DQN champion is only accepted when it matches the current DQN
+    /// architecture (`DQN_ARCH`); a stale 12×8×4 champion is treated as missing
+    /// (discarded, no panic).
     fn from_nets(ga: Option<Net>, dqn: Option<Net>) -> Self {
+        let dqn = dqn.filter(|n| n.matches_arch(&crate::dqn::DQN_ARCH));
         let plan = plan_cross_match(ga, dqn);
         if let CrossMatchPlayers::Ready { ga, dqn } = plan {
             return Self {
-                inner: CrossInner::Match(VersusMatch::new(ga, dqn, cross_flavor())),
+                inner: CrossInner::Match(VersusMatch::new_cross(ga, dqn, cross_flavor())),
             };
         }
         // A non-Ready plan is exactly "some side is missing", which always
@@ -293,7 +298,7 @@ mod tests {
 
     #[test]
     fn view_with_missing_side_is_a_message_state() {
-        let dqn = Net::new();
+        let dqn = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
         let view = CrossMatchView::from_nets(None, Some(dqn));
         assert_eq!(view.message(), Some(GA_MISSING_MESSAGE));
         assert!(!view.is_finished(), "message state is never finished");
@@ -302,7 +307,10 @@ mod tests {
 
     #[test]
     fn view_with_both_champions_runs_to_a_winner_within_budget() {
-        let view = CrossMatchView::from_nets(Some(Net::new()), Some(Net::new()));
+        let view = CrossMatchView::from_nets(
+        Some(Net::new()),
+        Some(Net::new_with_sizes(&crate::dqn::DQN_ARCH)),
+        );
         assert_eq!(
             view.message(),
             None,
@@ -320,5 +328,17 @@ mod tests {
             "random-brain cross match must finish within the tick budget"
         );
         assert!(view.winner().is_some());
+    }
+
+    #[test]
+    fn cross_match_rejects_dqn_champion_with_outdated_architecture() {
+        let ga = Net::new();
+        let old_dqn = Net::new(); // 12x8x4, pre-relative-action DQN arch
+        let view = CrossMatchView::from_nets(Some(ga), Some(old_dqn));
+        assert_eq!(
+            view.message(),
+            Some(DQN_MISSING_MESSAGE),
+            "old-arch DQN champion must be treated as missing"
+        );
     }
 }
