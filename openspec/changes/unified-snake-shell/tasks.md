@@ -33,10 +33,10 @@ STRICT TDD ACTIVE: test runner `cargo test`. Tasks marked **[RED-first]** start 
 
 ## Phase 5 — Menu shell + wiring
 
-- [ ] T5.1 `src/app.rs`: `AppMode`, `App` (paused DQN trainer + GA trainer holders, transient match state), menu rendering/input (numbers/arrows+Enter/Esc); pure `next_mode(...)` transition table. **[RED-first]** tests: fresh-match vs resume, paused-trainer cases, Esc semantics.
-- [ ] T5.2 Replace `src/main.rs` entry with the shell loop; delete `src/main_dqn.rs`; remove `snake-dqn` bin from `Cargo.toml`; register new modules in `src/lib.rs`.
-- [ ] T5.3 Docs: update `README.md`/`DQN_README.md` usage to the unified app + menu keys; note `dqn_champion.json`.
-- [ ] T5.4 Full `cargo build` + `cargo test` green; manual smoke of each menu → view → Esc path (no pixel tests, per design).
+- [x] T5.1 `src/app.rs`: `AppMode`, `App` (paused DQN trainer + GA trainer holders, transient match state), menu rendering/input (numbers/arrows+Enter/Esc); pure `next_mode(...)` transition table. **[RED-first]** tests: fresh-match vs resume, paused-trainer cases, Esc semantics.
+- [x] T5.2 Replace `src/main.rs` entry with the shell loop; delete `src/main_dqn.rs`; remove `snake-dqn` bin from `Cargo.toml`; register new modules in `src/lib.rs`.
+- [x] T5.3 Docs: update `README.md`/`DQN_README.md` usage to the unified app + menu keys; note `dqn_champion.json`.
+- [x] T5.4 Full `cargo build` + `cargo test` green; manual smoke of each menu → view → Esc path (no pixel tests, per design).
 
 ## Review Workload Forecast
 

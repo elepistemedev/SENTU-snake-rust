@@ -1,6 +1,80 @@
-# Apply Progress — unified-snake-shell (Slices 1–4 of 5)
+# Apply Progress — unified-snake-shell (Slices 1–5 of 5)
     
-Slice 4: GA trainer view + GA internal versus + DQN-vs-GA cross match (T3.1, T3.2, T4.2, T4.3). Delivery: chained slices on local branch `feature/dqn-vs-genetico` (no remote/PR). Not committed. Slices 1–3 records preserved verbatim below.
+Slice 5 (this file's top record): shell + wiring (T5.1–T5.4) — complete. Slices 1–4 records preserved verbatim below.
+    
+## Slice 5 — Menu shell + wiring + docs (completed)
+    
+Slice 5: `src/app.rs` shell + unified entry (`main.rs`), `main_dqn.rs` deleted, single bin, docs. Delivery: chained slices on local branch `feature/dqn-vs-genetico` (no remote/PR). Not committed. This is the final implementation slice.
+    
+## Completed tasks (persisted checkboxes updated)
+    
+| Task | Summary | Checkbox |
+| --- | --- | --- |
+| T5.1 | `src/app.rs` (new): `enum AppMode { Menu, DqnTrain, DqnVersus, GaTrain, GaVersus, DqnVsGa }`; pure seam `next_mode(mode, action, has_dqn, has_ga) -> Transition` (outcomes incl. `Quit`/`Stay`/`ToMenu`, `DqnTrainNew`/`DqnTrainResume`, `DqnVersusNew`, `GaTrainNew`/`GaTrainResume`, `GaVersusNew`, `CrossNew`) — **[RED-first]** 11 unit tests: menu Esc quits (the only quit path), any-view Esc → menu (paused trainers retained), DQN/GA train select fresh-vs-resume by `has_dqn`/`has_ga`, versus/cross entries always-fresh transient matches, invalid number keys ignored, Enter semantics (menu Enter is a shell translation into `Select`; match views dismiss finished results, trainer views ignore Enter), `Select` ignored inside views. `App` holds `mode`, `menu_selection`, paused `dqn: Option<DqnTrainView>` + `ga: Option<GaTrainView>` (AD-3 holders, created lazily, kept across menu visits) and a transient `match_view: Option<MatchView>` (DqnVersus/GaVersus/Cross) dropped on every menu return. Menu rendering: centered rows 1–5 with selection highlight (numbers or arrows+Enter), DQN row shows “paused at episode N - press 1 to resume” when a session is alive. Input routing: views are passive — the shell reads keys, forwards `R` → `fresh_agent()`, `Space` → GA `toggle_slow`, `Tab` → `toggle_advanced`, `V` → `trigger_vs`, and routes Esc via the pure table. Per-mode tick: DQN train 1 tick/frame, GA train via the view's pacing (its own sleep/batching), match views 1 tick/frame, menu no-op. `build_dqn_versus` composes champion + live policy from the paused trainer, falling back to `champion_store::load(dqn_champion.json)` and the view's fresh-greedy/message paths when no trainer exists (spec: “uses persisted champion or shows its message”). | `[x]` in tasks.md |
+| T5.2 | Wiring: `src/main.rs` rewritten as the thin shell entry (window `snake-ai`, `fullscreen: true` per AD-8, macroquad loop calling `App::run_frame()` until it returns quit); `src/main_dqn.rs` deleted; `snake-dqn` bin removed from `Cargo.toml` (manifest now ships exactly one bin: `snake` — confirmed via `cargo metadata`); `pub mod app;` registered in `src/lib.rs`. | `[x]` in tasks.md |
+| T5.3 | Docs: `README.md` gained a “Snake Rust — app unificada” usage section (single `cargo run --release`, menu table, per-view keys, champion files); `DQN_README.md` usage rewritten for the single binary (`snake-dqn` no longer exists) with unified menu + per-view key tables, controls updated (Esc pauses/back-to-menu on views, quits on menu; R fresh agent) and the “Guardar/cargar modelos entrenados” roadmap item checked with the `dqn_champion.json` note. | `[x]` in tasks.md |
+| T5.4 | Full verification: `cargo build` clean (0 warnings via `--all-targets`), `cargo test` → **54 passed / 0 failed** (43 baseline + 11 new `app` tests; lib: 5 champion_store + 3 viz_vs + 7 versus + 6 view_dqn_train + 6 view_dqn_versus + 5 view_ga_train + 6 view_ga_versus + 5 view_cross_match + 11 app), `cargo build --release` compiles. Suite re-run 3× consecutively — 54/54 each run, no flake. GUI smoke not possible headless (checklist below). | `[x]` in tasks.md |
+    
+## Files changed (slice 5)
+    
+- `src/app.rs` — new (pure transition seam + `App` shell: menu, input routing, tick/draw dispatch, transient `MatchView` + 11 unit tests)
+- `src/main.rs` — rewritten as the shell entry (window `snake-ai`, fullscreen, `App::run_frame()` loop)
+- `src/main_dqn.rs` — deleted (behavior lives in `view_dqn_train.rs`)
+- `Cargo.toml` — removed the `snake-dqn` `[[bin]]` block
+- `src/lib.rs` — added `pub mod app;`
+- `README.md`, `DQN_README.md` — usage docs (unified app + menu keys + `dqn_champion.json`)
+- `openspec/changes/unified-snake-shell/tasks.md` — checked T5.1–T5.4 (all 18 tasks now `[x]`)
+- `openspec/changes/unified-snake-shell/apply-progress.md` — this file (merged)
+    
+Not modified in this slice (as required): all slice-2/3/4 view/versus/viz/sim/pop modules, `src/viz_advanced.rs`, `src/game*.rs`, `src/nn.rs`, `src/champion_store.rs`, `src/configs.rs`, `.gitignore` (already carries `dqn_champion.json` from slice 1). No one-line API fixes were needed. No pixel tests.
+    
+## TDD Cycle Evidence
+    
+Runner: `cargo test`. Baseline: `cargo test` → 43 passed (slices 1–4), both bins 0.
+    
+| Task | RED | GREEN | Command |
+| --- | --- | --- | --- |
+| T5.1 | Registered `pub mod app;` in `lib.rs` and wrote the test module in `src/app.rs` referencing undefined seams (`next_mode`, `Action`, `AppMode`, `Transition`) → `cargo test app` failed: E0432 unresolved imports (super::*) | Implemented the pure transition table + full `App` (menu/input/tick/draw/MatchView) → `cargo test app` 11/11 pass | `cargo test app` |
+| T5.1 (cleanup) | First GREEN draft kept a leftover unused-var hack in `draw_dqn_train` and a static `dqn_status_text` helper that made the DQN row uninformative | Rewrote `draw_menu` (dynamic `format!` labels incl. “paused at episode N”) and `draw_dqn_train` (direct `draw_text`, no dead code); then `rustfmt` on the two authored files | `cargo build` + `cargo test` |
+| T5.2 | N/A (wiring/deletion of an entry point introduces no new pure behavior to RED-first) | Shell `main.rs` + bin removal + module registration → single-bin manifest (`cargo metadata` → bins `['snake']`), suite green | `cargo build` + `cargo test` + `cargo metadata` |
+| T5.3 | N/A (docs) | `README.md`/`DQN_README.md` rewritten usage sections | (markdown only) |
+| T5.4 | N/A (verification) | `cargo build` + `cargo test` green; suite re-run 3× → 54/54 every run; `cargo build --release` compiles | `cargo test` ×3, `cargo build --release` |
+    
+Final suite: `cargo test` → 54 passed / 0 failed. `cargo build --all-targets` clean, 0 warnings. Only the `snake` bin ships (lib 54 tests; bin 0). Pure seam (`next_mode`/`AppMode`/`Action`/`Transition`) is macroquad-free.
+    
+## Deviations from design
+    
+- Single `Transition` enum with named arms encoding both the destination mode and the construction decision (New/Resume), rather than the design sketch of a bare mode plus separate flags; the pure fn keeps the slice-5 mandated signature `next_mode(mode, action, has_dqn, has_ga)` (design.md's earlier `(mode, action, has_dqn)` sketch predates the `has_ga` instruction).
+- `Menu + Enter` returns `Transition::Stay` in the pure table: the pure fn does not hold `menu_selection`, so arrows+Enter is the shell converting the highlighted row into `Action::Select(n)` (number keys stay first-class). `Up/Down` only move `menu_selection` in the shell.
+- `Enter`-to-dismiss is gated by the shell: `next_mode` maps Enter from match views to `ToMenu`, but the shell only forwards Enter when the transient match reports `is_finished()`, so a stray Enter never aborts a running match.
+- Versus-from-menu is the only versus origin in this slice (matches design “versus-from-menu returns to Menu”); the in-train-view versus origin was not reachable in the MVP menu, so `Esc` from any match view returns to the menu directly.
+- DQN-versus entry prefers the paused trainer's in-memory champion and live q-network (AD-3/AD-4); with no trainer it falls back to `champion_store::load(DQN_CHAMPION_FILE)` and the `DqnVersusView` fresh-greedy/message paths — the “no trainer yet” spec branch is composed from already-tested seams (`plan_dqn_versus`, store load) rather than duplicated in `app.rs`.
+- DQN-train hotkey hint (“[R] fresh agent  [ESC] menu”) is overlaid by the shell in the free bottom-left HUD column after `DqnTrainView::draw()` because the slice-3 view file was out of the allowed edit surfaces; the grid never occupies that corner (it starts at the HUD column x-offset).
+- GA paused-row status in the menu is generic (“paused - press 3 to resume”) because `GaTrainView` exposes no generation-count accessor and its file was out of allowed surfaces; the spec's resumable-indicator requirement (episode-level) is fully met for the DQN row and met at the resumable level for GA.
+    
+## Remaining tasks
+    
+None — all 18 implementation tasks are `[x]` in `tasks.md`; no deferred parent-owned actions were listed for this change.
+    
+## Manual smoke checklist (headless verification impossible — for the user)
+    
+1. `cargo run --release` — fullscreen window `snake-ai` opens on the menu; rows 1–5 with selection highlight and a footer key hint.
+2. Menu `Esc` quits the process.
+3. `1` (DQN train) → episodes step (Episode/Score/Best/Epsilon HUD + grid); `Esc` returns to the menu and the row shows “paused at episode N - press 1 to resume”; `1` again resumes at N; `R` resets the agent (champion kept); on a record, `dqn_champion.json` appears and a NEW DQN RECORD line prints.
+4. `2` (DQN versus) with a champion → CHAMPION vs CURRENT match runs to a winner; `Esc`/`Enter` after finish → menu; with no champion (fresh checkout) → “Train DQN first” message, `Esc` → menu.
+5. `3` (GA train) → generation/gen-max/best-ever HUD; `Space` toggles slow/fast, `Tab` shows the advanced dashboard, `V` runs the internal GA VS (renders versus, then auto-returns); `Esc` → menu (row shows paused).
+6. `4` (GA versus) → BEST EVER vs 2ND BEST match (record panel); `Esc` after finish → menu.
+7. `5` (DQN vs GA) with both `best_snake.json` and `dqn_champion.json` → cross match; missing one side → per-side message, `Esc` → menu.
+    
+## Workload / PR boundary
+    
+Slice 5 is the final slice of the chained plan: ~700 added lines in `src/app.rs` + main/lib/Cargo churn + 2 doc files; `main_dqn.rs` deleted (−132). The complete change spans slices 1–5 (cumulative well above the 400-line review budget, as forecast); each slice was independently compilable/testable and this one completes the full `unified-snake-shell` change. Ready for parent-lifecycle (verify).
+    
+## Structured status consumed
+    
+Authoritative native status (change `unified-snake-shell`): `applyState: ready`, `artifactStore: openspec`, `actionContext.mode: repo-local`, allowed edit roots `[<repo-root>]`, no warnings; the parent prompt resolved the delivery path (chained slice 5 of 5, no commit). All edited paths inside the authoritative workspace and the slice's allowed edit surfaces. Strict TDD followed for the testable seam (T5.1 RED→GREEN→TRIANGULATE); wiring/docs/verification have no new pure behavior to RED-first (recorded per task).
+    
+---
     
 ## Slice 4 — GA side + cross-match views (completed)
     

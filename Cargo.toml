@@ -7,10 +7,6 @@ edition = "2021"
 name = "snake"
 path = "src/main.rs"
 
-[[bin]]
-name = "snake-dqn"
-path = "src/main_dqn.rs"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

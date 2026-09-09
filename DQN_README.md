@@ -47,15 +47,46 @@
 
 ## 🚀 Uso
 
-### Entrenar con DQN:
+El crate compila **un único binario** (`snake`) que abre un menú con las cinco
+vistas: entrenar DQN, versus DQN, entrenar GA, versus GA y DQN vs GA. La vista
+de entrenamiento DQN (y el GA) se *pausa* al volver al menú — no se destruye —
+y desde el menú se reanuda con la misma tecla.
+
+### Ejecutar la app unificada:
 ```bash
-cargo run --release --bin snake-dqn
+cargo run --release
 ```
 
-### Entrenar con Algoritmo Genético (original):
-```bash
-cargo run --release --bin snake
-```
+### Menú (pantalla inicial)
+
+| Tecla | Acción |
+| --- | --- |
+| `1` | Entrenar DQN (crea agente nuevo la primera vez; reanuda la sesión pausada si existe) |
+| `2` | Versus DQN (champion vs política actual; partida nueva en cada entrada) |
+| `3` | Entrenar GA (algoritmo genético; DQN-style HUD, `Tab` panel avanzado) |
+| `4` | Versus GA (best-ever vs second-best) |
+| `5` | DQN vs GA (best_snake.json vs dqn_champion.json) |
+| `Up`/`Down` + `Enter` | Navegar y seleccionar |
+| `Esc` | Salir de la app |
+
+El menú indica si hay una sesión DQN pausada reanudable, p. ej. `1) DQN Train
+(paused at episode N - press 1 to resume)`.
+
+### Teclas dentro de las vistas
+
+| Vista | Teclas |
+| --- | --- |
+| DQN train | `R` = agente nuevo (conserva el champion); `Esc` = pausar y volver al menú |
+| GA train | `Espacio` = lento/rápido; `Tab` = panel avanzado; `V` = versus interno GA; `Esc` = volver al menú |
+| Versus / cross | `Esc` = volver al menú (también al terminar: `Esc`/`Enter`) |
+
+El DQN **champion** (snapshot del q-network en cada récord de sesión) se guarda
+en `dqn_champion.json` (formato serde `Net`, mismo que `best_snake.json`). El
+archivo está en `.gitignore`; si falta o está corrupto la app arranca sin
+champion y las vistas que lo necesitan muestran un mensaje (no crashea).
+
+> Nota: el binario `snake-dqn` ya no existe — la app unificada reemplaza ambos
+> binarios anteriores (`snake` y `snake-dqn`).
 
 ## 📈 Hiperparámetros
 
@@ -94,7 +125,9 @@ Donde:
 
 ## 🎮 Controles
 
-- `Escape` - Salir del entrenamiento
+- `Esc` en el menú — Salir de la app
+- `Esc` en una vista — Volver al menú (entrenamiento DQN/GA queda pausado y reanudable)
+- `R` en DQN train — Reiniciar con un agente nuevo (conserva el champion)
 
 ## 📊 Métricas Mostradas
 
@@ -123,5 +156,10 @@ Donde:
 - [ ] Dueling DQN (separa V(s) y A(s,a))
 - [ ] Prioritized Experience Replay
 - [ ] Optimizador Adam
-- [ ] Guardar/cargar modelos entrenados
+- [x] Guardar/cargar modelos entrenados (champion snapshot en `dqn_champion.json`)
+
+## 📁 Archivos generados
+
+- `dqn_champion.json` — snapshot del q-network en cada récord de sesión DQN (cubierto por `.gitignore`)
+- `best_snake.json` / `sim_metadata.json` — champions e historia del algoritmo genético
 - [ ] Gráficas de progreso en tiempo real
