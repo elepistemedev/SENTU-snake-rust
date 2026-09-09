@@ -37,6 +37,21 @@ impl VizAdvanced {
         }
     }
 
+    pub fn get_history(&self) -> (Vec<f32>, Vec<usize>) {
+        (self.gen_times.clone(), self.gen_scores.clone())
+    }
+
+    pub fn set_history(&mut self, mut times: Vec<f32>, mut scores: Vec<usize>) {
+        if times.len() > self.max_history_size {
+            times.drain(0..(times.len() - self.max_history_size));
+        }
+        if scores.len() > self.max_history_size {
+            scores.drain(0..(scores.len() - self.max_history_size));
+        }
+        self.gen_times = times;
+        self.gen_scores = scores;
+    }
+
     pub fn draw(
         &self,
         games: &[&crate::game::Game],
@@ -250,9 +265,9 @@ impl VizAdvanced {
         y += 45.0;
         draw_text(&format!("Gen: {}", gen), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
         y += 30.0;
-        draw_text(&format!("Max: {}/{}", max_score, NUM_GAMES_PER_STREAM), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
+        draw_text(&format!("Max: {}", max_score), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
         y += 30.0;
-        draw_text(&format!("Gen Max: {}/{}", gen_max, NUM_GAMES_PER_STREAM), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
+        draw_text(&format!("Gen Max: {}", gen_max), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
         y += 30.0;
         draw_text(&format!("Sim Ts: {:.2} secs", sim_time), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
 
@@ -260,7 +275,7 @@ impl VizAdvanced {
         y += 45.0;
         self.draw_panel(panel_x, y, panel_w, 130.0, "VIZ STATS");
         y += 45.0;
-        draw_text(&format!("Score: {}/{}", current_score, NUM_GAMES_PER_STREAM), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
+        draw_text(&format!("Score: {}", current_score), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
         y += 30.0;
         draw_text(&format!("Fitness: {:.2}", fitness), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
         y += 30.0;
@@ -304,7 +319,17 @@ impl VizAdvanced {
     fn draw_chart(&self, x: f32, y: f32, w: f32, h: f32, title: &str, data: &[f32], color: Color) {
         draw_rectangle(x, y, w, h, PANEL_BG);
         draw_rectangle_lines(x, y, w, h, 3.0, PANEL_BORDER);
-        draw_text(title, x + 20.0, y + 30.0, TITLE_SIZE, ACCENT_COLOR);
+        let max_val = if !data.is_empty() {
+            data.iter().fold(0.0f32, |a, &b| a.max(b))
+        } else {
+            0.0
+        };
+        let chart_title = if max_val > 0.0 {
+            format!("{} (MAX: {:.0})", title, max_val)
+        } else {
+            title.to_string()
+        };
+        draw_text(&chart_title, x + 20.0, y + 30.0, TITLE_SIZE, ACCENT_COLOR);
         
         if data.is_empty() {
             return;
@@ -315,11 +340,11 @@ impl VizAdvanced {
         let chart_w = w - 40.0;
         let chart_h = h - 70.0;
 
-        let max_val = data.iter().fold(0.0f32, |a, &b| a.max(b)).max(1.0);
+        let scale = max_val.max(1.0);
         let step = chart_w / data.len().max(1) as f32;
 
         for (i, &val) in data.iter().enumerate() {
-            let bar_h = (val / max_val) * chart_h;
+            let bar_h = (val / scale) * chart_h;
             let bar_x = chart_x + i as f32 * step;
             let bar_y = chart_y + chart_h - bar_h;
             draw_rectangle(bar_x, bar_y, step.max(4.0) - 1.0, bar_h, color);
@@ -346,5 +371,39 @@ impl VizAdvanced {
         draw_text(&format!("Streams: {}", NUM_STREAMS), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
         y += 45.0;
         draw_text("Controls: [TAB] Viz  [SPACE] Slow  [V] VS  [ESC] Quit", panel_x + 20.0, y, 18.0, ACCENT_COLOR);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_round_trip_and_cap() {
+        let mut viz = VizAdvanced::new();
+        let times: Vec<f32> = (0..60).map(|i| i as f32).collect();
+        let scores: Vec<usize> = (0..60).collect();
+        viz.set_history(times, scores);
+
+        let (out_times, out_scores) = viz.get_history();
+        assert_eq!(out_times.len(), 50);
+        assert_eq!(out_scores.len(), 50);
+        assert_eq!(out_times.first(), Some(&10.0));
+        assert_eq!(out_scores.first(), Some(&10));
+        assert_eq!(out_times.last(), Some(&59.0));
+        assert_eq!(out_scores.last(), Some(&59));
+    }
+
+    #[test]
+    fn update_generation_pushes_and_caps() {
+        let mut viz = VizAdvanced::new();
+        for i in 0..55 {
+            viz.update_generation(i as f32, i * 2);
+        }
+        let (times, scores) = viz.get_history();
+        assert_eq!(times.len(), 50);
+        assert_eq!(scores.len(), 50);
+        assert_eq!(times[0], 5.0);
+        assert_eq!(scores[0], 10);
     }
 }

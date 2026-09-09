@@ -21,6 +21,7 @@ pub struct Population {
 pub struct GenerationSummary {
     pub time_elapsed_secs: f32,
     pub max_score: usize,
+    pub max_steps: usize,
     pub best_net: Option<Net>,
 }
 
@@ -40,8 +41,8 @@ impl Population {
         }
 
         Self {
-            streams,
             gen_start_ts: Instant::now(),
+            streams,
         }
     }
 
@@ -57,44 +58,43 @@ impl Population {
 
     pub fn reset(&mut self) {
         self.gen_start_ts = Instant::now();
-        let mut nets = Vec::new();
+        let mut nets: Vec<Net> = Vec::new();
 
-        // Reinicio de streams
         for stream in self.streams.iter_mut() {
-            let best_net = stream.reset();
-            nets.push(best_net);
+            nets.push(stream.reset());
         }
 
-        // No hay streams para cruzar
-        if self.streams.len() <= 1 {
-            return;
-        }
-
-        // Cruce de streams
+        // Rejuvenecimiento de Islas
         let mut rng = rand::thread_rng();
         for stream in self.streams.iter_mut() {
             if !stream.is_local_maximum() {
                 continue;
             }
 
+            // Inyecta el mejor modelo de otro stream aleatorio
             stream.inject(&nets[rng.gen_range(0..nets.len())]);
         }
     }
 
     pub fn get_gen_summary(&self) -> GenerationSummary {
         let mut max_score = 0;
+        let mut max_steps = 0;
         let mut best_net = None;
 
         for stream in self.streams.iter() {
-            let (stream_score, stream_net) = stream.get_stream_summary();
+            let (stream_score, stream_steps, stream_net) = stream.get_stream_summary();
             if stream_score > max_score {
                 max_score = stream_score;
                 best_net = stream_net;
+            }
+            if stream_steps > max_steps {
+                max_steps = stream_steps;
             }
         }
 
         GenerationSummary {
             max_score,
+            max_steps,
             time_elapsed_secs: self.gen_start_ts.elapsed().as_secs_f32(),
             best_net,
         }

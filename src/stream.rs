@@ -66,19 +66,24 @@ impl Stream {
         self.max_score_ts = Instant::now();
     }
 
-    pub fn get_stream_summary(&self) -> (usize, Option<Net>) {
+    pub fn get_stream_summary(&self) -> (usize, usize, Option<Net>) {
         let mut max_score = 0;
+        let mut max_steps = 0;
         let mut best_net = None;
 
         for g in self.games.iter() {
             let score = g.score();
+            let steps = g.num_steps;
+            if steps > max_steps {
+                max_steps = steps;
+            }
             if score > max_score {
                 max_score = score;
                 best_net = Some(g.brain.clone());
             }
         }
 
-        (max_score, best_net)
+        (max_score, max_steps, best_net)
     }
 
     pub fn get_best_game(&self) -> Option<&Game> {

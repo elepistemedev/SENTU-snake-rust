@@ -20,6 +20,10 @@ struct SimMetadata {
     second_max_score_ever: usize,
     best_net: Option<Net>,
     second_best_net: Option<Net>,
+    #[serde(default)]
+    gen_times: Vec<f32>,
+    #[serde(default)]
+    gen_scores: Vec<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -94,11 +98,13 @@ impl Default for Simulation {
 impl Simulation {
     pub fn new() -> Self {
         let metadata = Self::load_metadata();
+        let mut viz = VizAdvanced::new();
+        viz.set_history(metadata.gen_times, metadata.gen_scores);
 
         Self {
             gen_count: metadata.gen_count,
             pop: Population::new(),
-            viz: VizAdvanced::new(),
+            viz,
             viz_vs: VizVS::new(),
             max_score_ever: metadata.max_score_ever,
             second_max_score_ever: metadata.second_max_score_ever,
@@ -124,16 +130,21 @@ impl Simulation {
             second_max_score_ever: 0,
             best_net: None,
             second_best_net: None,
+            gen_times: Vec::new(),
+            gen_scores: Vec::new(),
         }
     }
 
     fn save_metadata(&self) {
+        let (gen_times, gen_scores) = self.viz.get_history();
         let metadata = SimMetadata {
             gen_count: self.gen_count,
             max_score_ever: self.max_score_ever,
             second_max_score_ever: self.second_max_score_ever,
             best_net: self.best_net_ever.clone(),
             second_best_net: self.second_best_net_ever.clone(),
+            gen_times,
+            gen_scores,
         };
         if let Ok(json) = serde_json::to_string_pretty(&metadata) {
             fs::write("sim_metadata.json", json).ok();
@@ -296,7 +307,7 @@ impl Simulation {
         }
 
         self.viz
-            .update_generation(stats.time_elapsed_secs, stats.max_score);
+            .update_generation(stats.max_steps as f32, stats.max_score);
 
         // Save every 10 generations
         if self.gen_count.is_multiple_of(10) {
@@ -324,5 +335,56 @@ impl Simulation {
                 best_game.num_steps,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sim_metadata_deserializes_without_history_fields() {
+        let legacy_json = r#"{
+            "gen_count": 50,
+            "max_score_ever": 15,
+            "second_max_score_ever": 12,
+            "best_net": null,
+            "second_best_net": null
+        }"#;
+
+        let meta: SimMetadata = serde_json::from_str(legacy_json).expect("must parse legacy json");
+        assert_eq!(meta.gen_count, 50);
+        assert_eq!(meta.max_score_ever, 15);
+        assert!(meta.gen_times.is_empty(), "default must be empty vec");
+        assert!(meta.gen_scores.is_empty(), "default must be empty vec");
+    }
+
+    #[test]
+    fn sim_metadata_round_trip_with_history() {
+        let meta = SimMetadata {
+            gen_count: 100,
+            max_score_ever: 42,
+            second_max_score_ever: 30,
+            best_net: None,
+            second_best_net: None,
+            gen_times: vec![10.0, 20.0, 30.0],
+            gen_scores: vec![1, 5, 12],
+        };
+
+        let json = serde_json::to_string(&meta).expect("serialize must succeed");
+        let loaded: SimMetadata = serde_json::from_str(&json).expect("deserialize must succeed");
+
+        assert_eq!(loaded.gen_count, 100);
+        assert_eq!(loaded.max_score_ever, 42);
+        assert_eq!(loaded.gen_times, vec![10.0, 20.0, 30.0]);
+        assert_eq!(loaded.gen_scores, vec![1, 5, 12]);
+    }
+
+    #[test]
+    fn population_get_gen_summary_includes_max_steps() {
+        let pop = Population::new();
+        let summary = pop.get_gen_summary();
+        assert!(summary.max_score >= 1, "initial snake length is 1");
+        assert_eq!(summary.max_steps, 0, "fresh population has not stepped");
     }
 }
