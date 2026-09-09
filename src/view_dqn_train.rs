@@ -9,9 +9,15 @@
 //! shown — the struct, agent, episode counter, session best, and champion stay
 //! alive — and resumes by calling it again. `Esc` handling and the `R` hotkey
 //! belong to the shell; this view exposes [`DqnTrainView::fresh_agent`] for the
-//! latter. Drawing follows the DQN-style layout family of the old `main_dqn`:
-//! a left-anchored HUD column plus a grid that is centered and sized from
-//! `screen_width()`/`screen_height()` (no hardcoded 800×600 offsets).
+//! latter.
+//!
+//! Drawing: a fresh view defaults to the advanced dashboard target
+//! ([`DqnRenderTarget::Dashboard`] — the `VizAdvanced`-grammar mirror fed by
+//! live DQN data, drawn by the `dqn_dash` module). `Tab` toggles to the legacy
+//! compact DQN-style HUD ([`DqnRenderTarget::Hud`]): a left-anchored text
+//! column plus a grid that is centered and sized from `screen_width()`/
+//! `screen_height()` (no hardcoded 800×600 offsets). Toggling never perturbs
+//! the in-flight episode or session bookkeeping.
 
 use macroquad::prelude::*;
 
@@ -23,6 +29,90 @@ use crate::nn::Net;
 /// Where the DQN champion snapshot is persisted (serde `Net`, same format as
 /// `best_snake.json`). Missing or corrupt contents degrade to no champion.
 pub const DQN_CHAMPION_FILE: &str = "dqn_champion.json";
+
+/// Which renderer draws the current DQN-train frame (design D-3, mirror of the
+/// GA render-target seam). Two states only: DQN has no sim-internal VS
+/// sub-state, so unlike GA there is no versus arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DqnRenderTarget {
+/// The advanced dashboard (default): `VizAdvanced`-grammar mirror fed by
+/// live DQN data (`dqn_dash` module, slice B).
+Dashboard,
+/// The legacy compact DQN-style HUD (text column + grid).
+Hud,
+}
+
+/// Pure render-path decision (macroquad-free, RED-first seam, design D-3).
+pub fn dqn_render_target(dashboard_enabled: bool) -> DqnRenderTarget {
+if dashboard_enabled {
+DqnRenderTarget::Dashboard
+} else {
+DqnRenderTarget::Hud
+}
+}
+
+/// Max entries kept by [`EpisodeHistory`], mirroring `VizAdvanced`'s 50-entry
+/// cap (`viz_advanced.rs`, read-only).
+pub const EPISODE_HISTORY_CAP: usize = 50;
+
+/// Bounded per-episode history ring feeding the dashboard's charts (design
+/// D-7). Pure and macroquad-free.
+///
+/// Invariant: `times.len() == scores.len()` at all times — a `push` appends to
+/// both vectors and eviction `remove(0)` drops the *oldest pair* from both.
+///
+/// `times` holds the completed episode's duration as its step count at
+/// completion (recorded pre-reset in `end_episode`, per the spec — not a
+/// wall-clock `Instant`), so chart 1 ("EPISODE TIMES") is deterministic and
+/// unit-testable.
+///
+/// Slice-A staging note: defined here so the view's tests stay macroquad-free;
+/// design D-1/D-7 place the type inside `dqn_dash.rs`, so slice B relocates
+/// this struct + impl + its tests when the drawing module is created.
+pub struct EpisodeHistory {
+/// Episode durations (step counts at completion), oldest first.
+pub times: Vec<f32>,
+/// Episode final scores, oldest first (index-aligned with `times`).
+pub scores: Vec<usize>,
+cap: usize,
+}
+
+impl EpisodeHistory {
+/// An empty ring capped at [`EPISODE_HISTORY_CAP`] entries.
+pub fn new() -> Self {
+Self {
+times: Vec::new(),
+scores: Vec::new(),
+cap: EPISODE_HISTORY_CAP,
+}
+}
+
+/// Append one `(time, score)` pair; overflow evicts the oldest pair so the
+/// ring holds at most `cap` entries with the newest last.
+pub fn push(&mut self, time: f32, score: usize) {
+debug_assert!(
+self.times.len() == self.scores.len(),
+"EpisodeHistory invariant broken: times/scores out of alignment"
+);
+self.times.push(time);
+self.scores.push(score);
+while self.len() > self.cap {
+self.times.remove(0);
+self.scores.remove(0);
+}
+}
+
+/// Empty both vectors (fresh-agent session reset).
+pub fn clear(&mut self) {
+self.times.clear();
+self.scores.clear();
+}
+
+/// Number of recorded episodes (`scores.len() == times.len()`).
+pub fn len(&self) -> usize {
+self.scores.len()
+}
+}
 
 /// Episode-end record decision (pure, macroquad-free).
 ///
@@ -51,6 +141,13 @@ pub struct DqnTrainView {
     episode: usize,
     best_score: usize,
     champion: Option<Net>,
+    /// Whether the advanced dashboard is the active render target (design
+    /// D-3). Default `true`: the dashboard is the DQN-train default; `Tab`
+    /// toggles to the compact HUD.
+    dashboard: bool,
+    /// Per-episode history fed at every `end_episode` (design D-7); cleared by
+    /// `fresh_agent`. Survives menu pause/resume as part of the session state.
+    history: EpisodeHistory,
     /// Where the champion is loaded from/saved to. Defaults to
     /// [`DQN_CHAMPION_FILE`]; tests inject a private temp path.
     champion_path: &'static str,
@@ -75,6 +172,8 @@ impl DqnTrainView {
             episode: 0,
             best_score: 0,
             champion,
+            dashboard: true,
+            history: EpisodeHistory::new(),
             champion_path,
         }
     }
@@ -91,6 +190,11 @@ impl DqnTrainView {
     }
 
     fn end_episode(&mut self) {
+        // Record the completed episode's (step-count duration, final score)
+        // BEFORE any bookkeeping/reset, per the spec: exactly one entry per
+        // completed episode, duration = steps at completion (deterministic,
+        // no wall-clock timer). Reconciles design D-7.
+        self.history.push(self.game.steps as f32, self.game.score);
         self.episode += 1;
         let (new_best, snapshot) =
             on_episode_end(self.game.score, self.best_score, &self.game.agent.q_network);
@@ -125,6 +229,10 @@ impl DqnTrainView {
         self.game = GameDQN::new();
         self.episode = 0;
         self.best_score = 0;
+        // Session-reset semantics: the recorded per-episode history belongs to
+        // the old learner. The champion and the active render target survive
+        // (design seam 4 / spec).
+        self.history.clear();
     }
 
     /// Score of the live game.
@@ -159,11 +267,35 @@ impl DqnTrainView {
         self.champion.as_ref()
     }
 
+    /// Whether the advanced dashboard is the active render target.
+    pub fn dashboard_enabled(&self) -> bool {
+        self.dashboard
+    }
+
+    /// Toggle the render target between the dashboard and the compact HUD
+    /// (shell maps the `Tab` key to this method). Pure state flip: never
+    /// perturbs the in-flight episode or session bookkeeping.
+    pub fn toggle_dashboard(&mut self) {
+        self.dashboard = !self.dashboard;
+    }
+
+    /// The per-episode history ring (fed at every `end_episode`, cleared by
+    /// `fresh_agent`), for the dashboard charts and tests.
+    pub fn history(&self) -> &EpisodeHistory {
+        &self.history
+    }
+
     /// Draw the DQN-style HUD (Episode/Score/Best/Epsilon) plus the snake grid.
     /// The grid is centered and sized from the current screen dimensions — the
     /// old `main_dqn` used hardcoded `offset_x = 250`, `tile_size = 20` offsets
     /// that assumed an 800×600 window.
     pub fn draw(&self) {
+        // SLICE B placeholder: this method becomes the design D-3 dispatcher
+        // `match dqn_render_target(self.dashboard) { Dashboard =>
+        // dqn_dash::draw(&self.game, self.episode, self.best_score,
+        // &self.history), Hud => self.draw_hud() }` once `dqn_dash.rs` exists;
+        // the compact body below moves unchanged into a private `draw_hud`.
+        // Until then the visible DQN output stays compact in both targets.
         clear_background(BLACK);
 
         draw_text(
@@ -389,11 +521,28 @@ mod tests {
             "epsilon must decay below 1.0 after 60 training steps"
         );
 
-        let recorded = Net::new();
-        view.champion = Some(recorded.clone());
-        view.fresh_agent();
+            let recorded = Net::new();
+            view.champion = Some(recorded.clone());
+            // Slice A: pre-fill the per-episode history and flip the render target
+            // to the compact HUD; a fresh agent clears history but preserves both
+            // the champion and the display choice (design seam 4 / spec).
+            view.history.push(1.0, 1);
+            view.history.push(2.0, 4);
+            view.history.push(3.0, 9);
+            assert!(view.history().len() >= 3, "history pre-filled before fresh_agent");
+            view.toggle_dashboard();
+            assert!(
+                !view.dashboard_enabled(),
+                "pre-toggled to the compact HUD before fresh_agent"
+            );
+            view.fresh_agent();
 
-        assert_eq!(view.episode(), 0, "fresh agent zeroes the episode counter");
+            assert_eq!(view.episode(), 0, "fresh agent zeroes the episode counter");
+            assert_eq!(view.history().len(), 0, "fresh agent empties the per-episode history");
+            assert!(
+                !view.dashboard_enabled(),
+                "fresh agent must not change the active render target"
+            );
         assert_eq!(view.best_score(), 0, "fresh agent zeroes the session best");
         assert!(
             (view.epsilon() - 1.0).abs() < 1e-9,
@@ -423,5 +572,163 @@ mod tests {
             "loaded champion must match the saved one (within 1e-9)"
         );
         std::fs::remove_file(TEST_ROUNDTRIP_FILE).ok();
+    }
+
+    // --- Slice A: DQN render-target seam (design D-3, spec "dashboard is the
+    // default target") --------------------------------------------------------
+
+    #[test]
+    fn dqn_render_target_maps_the_dashboard_flag_to_the_render_target() {
+        assert_eq!(dqn_render_target(true), DqnRenderTarget::Dashboard);
+        assert_eq!(dqn_render_target(false), DqnRenderTarget::Hud);
+    }
+
+    #[test]
+    fn fresh_view_defaults_to_dashboard_and_toggle_round_trips_without_perturbing_training() {
+        let mut view = test_view();
+        view.episode = 7;
+        view.best_score = 11;
+        let champion = Net::new();
+        view.champion = Some(champion.clone());
+
+        assert!(view.dashboard_enabled(), "a fresh view must open on the dashboard");
+        assert_eq!(
+            dqn_render_target(view.dashboard_enabled()),
+            DqnRenderTarget::Dashboard
+        );
+
+        // Ticks between toggles (3 < the 12-step minimum wall path and the
+        // 4-step self-collision loop) never flip the target nor reset the
+        // in-flight session bookkeeping or champion.
+        for _ in 0..3 {
+            view.tick();
+        }
+        assert!(view.dashboard_enabled(), "ticking must not change the target");
+        assert_eq!(view.episode(), 7, "ticking must not reset the episode counter");
+        assert_eq!(view.best_score(), 11, "ticking must not reset the session best");
+        assert!(
+            nets_eq(view.champion().expect("champion set above"), &champion),
+            "ticking must not replace the champion"
+        );
+
+        view.toggle_dashboard();
+        assert!(!view.dashboard_enabled(), "one toggle leaves the dashboard");
+        assert_eq!(
+            dqn_render_target(view.dashboard_enabled()),
+            DqnRenderTarget::Hud
+        );
+        for _ in 0..3 {
+            view.tick();
+        }
+        assert!(!view.dashboard_enabled(), "ticking must not flip the target back");
+        assert_eq!(view.episode(), 7, "ticking must not reset the episode counter");
+
+        view.toggle_dashboard();
+        assert!(view.dashboard_enabled(), "a second toggle returns to the dashboard");
+        assert_eq!(
+            dqn_render_target(view.dashboard_enabled()),
+            DqnRenderTarget::Dashboard
+        );
+        assert_eq!(view.episode(), 7, "toggling never resets the session");
+        assert_eq!(view.best_score(), 11, "toggling never resets the session best");
+        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+    }
+
+    // --- Slice A: EpisodeHistory ring (design D-7; staged in the view module
+    // and relocated into `dqn_dash.rs` when the drawing module lands, slice B) ---
+
+    #[test]
+    fn history_ring_caps_at_fifty_and_evicts_the_oldest_pair() {
+        let mut history = EpisodeHistory::new();
+        for i in 0..60 {
+            history.push(i as f32, (i * 10) as usize);
+        }
+        assert_eq!(
+            history.len(),
+            EPISODE_HISTORY_CAP,
+            "ring must hold exactly EPISODE_HISTORY_CAP entries"
+        );
+        assert_eq!(history.len(), 50, "60 pushes must cap the ring at 50");
+        assert_eq!(history.times.first(), Some(&10.0), "oldest pair (time 0) evicted");
+        assert_eq!(history.scores.first(), Some(&100), "oldest pair (score 0) evicted");
+        assert_eq!(history.times.last(), Some(&59.0), "newest pair present");
+        assert_eq!(history.scores.last(), Some(&590), "newest pair present");
+    }
+
+    #[test]
+    fn history_times_and_scores_stay_index_aligned_across_evictions() {
+        let mut history = EpisodeHistory::new();
+        for i in 0..55 {
+            history.push(i as f32, (i * 10) as usize);
+        }
+        assert_eq!(history.len(), 50);
+        for (n, (time, score)) in history
+            .times
+            .iter()
+            .zip(history.scores.iter())
+            .enumerate()
+        {
+            assert_eq!(*time, (n + 5) as f32, "pair {n} time out of order");
+            assert_eq!(*score, (n + 5) * 10, "pair {n} score out of order");
+        }
+    }
+
+    #[test]
+    fn history_clear_empties_both_vectors_and_the_ring_stays_reusable() {
+        let mut history = EpisodeHistory::new();
+        history.push(1.0, 1);
+        history.push(2.0, 4);
+        assert_eq!(history.len(), 2);
+        history.clear();
+        assert_eq!(history.len(), 0, "clear empties the ring");
+        assert!(
+            history.times.is_empty() && history.scores.is_empty(),
+            "clear empties both vectors"
+        );
+        history.push(3.0, 9);
+        assert_eq!(history.times, vec![3.0], "cleared ring accepts new entries");
+        assert_eq!(history.scores, vec![9]);
+    }
+
+    // --- Slice A: episode-end / fresh-agent history bookkeeping (spec) ---------
+
+    #[test]
+    fn end_episode_records_one_history_entry_from_pre_reset_steps_and_score() {
+        let mut view = test_view();
+        view.episode = 3;
+        view.best_score = 10; // above the seeded score: no record, no champion save
+        view.game.score = 5;
+        view.game.steps = 71;
+        assert_eq!(
+            view.history().len(),
+            0,
+            "no entries before the first episode end"
+        );
+
+        view.end_episode();
+
+        assert_eq!(
+            view.history().len(),
+            1,
+            "exactly one entry per completed episode"
+        );
+        assert_eq!(
+            view.history().scores,
+            vec![5],
+            "entry holds the episode's final score"
+        );
+        assert_eq!(
+            view.history().times,
+            vec![71.0],
+            "entry duration = step count at completion (pre-reset, no wall clock)"
+        );
+        assert_eq!(view.episode(), 4, "episode bookkeeping advanced");
+        assert_eq!(view.game.score, 0, "board reset after recording");
+        assert_eq!(view.game.steps, 0, "board reset after recording");
+        assert!(
+            view.champion().is_none(),
+            "below-best episode never touches the champion"
+        );
+        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
     }
 }

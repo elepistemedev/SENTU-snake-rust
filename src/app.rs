@@ -12,9 +12,10 @@
 //! transition table (menu select → view; fresh vs resume for trainers; versus =
 //! always-fresh; `Esc` semantics; finished-match `Enter` dismissal) is
 //! unit-testable headless. The views themselves are passive: they never poll
-//! keys; the shell reads keys each frame, forwards view-only keys (`R` fresh DQN
-//! agent, `Space` slow/fast GA, `Tab` advanced GA dashboard, `V` GA internal VS)
-//! to the active view, and routes navigation keys through [`next_mode`].
+//! keys; the shell reads keys each frame, forwards view-only keys (`R` fresh
+//! DQN agent, `Tab` toggles the DQN dashboard, `Space` slow/fast GA, `Tab`
+//! toggles the advanced GA dashboard, `V` GA internal VS) to the active view,
+//! and routes navigation keys through [`next_mode`].
 //!
 //! Per-mode tick policy (design "Per-mode tick policy"): `DqnTrain` steps its
 //! trainer once per frame; `GaTrain` steps through the view's own pacing/batching
@@ -277,6 +278,11 @@ impl App {
                 view.fresh_agent();
             }
         }
+        if is_key_pressed(KeyCode::Tab) {
+            if let Some(view) = &mut self.dqn {
+                view.toggle_dashboard();
+            }
+        }
     }
 
     fn handle_ga_train_input(&mut self) {
@@ -471,15 +477,19 @@ impl App {
         draw_text(text, x - dims.width * 0.5, y, font_size, color);
     }
 
-    fn draw_dqn_train(&mut self) {
-        if let Some(view) = &self.dqn {
-            view.draw();
-            // DQN-style HUD leaves the bottom of the left text column free; the
-            // shell overlays the view hotkeys there (the view is passive).
-            let hint = "[R] fresh agent   [ESC] menu";
-            draw_text(hint, 10.0, screen_height() - 12.0, 18.0, GRAY);
+        fn draw_dqn_train(&mut self) {
+            if let Some(view) = &self.dqn {
+                view.draw();
+                // The shell hotkey hint must not overlap the dashboard's bottom
+                // model-info panel (design D-8): it is drawn only while the compact
+                // HUD is the active target. The dashboard carries its own controls
+                // line inside the model-info panel.
+                if !view.dashboard_enabled() {
+                    let hint = "[R] fresh agent   [ESC] menu";
+                    draw_text(hint, 10.0, screen_height() - 12.0, 18.0, GRAY);
+                }
+            }
         }
-    }
 
     fn draw_ga_train(&mut self) {
         if let Some(view) = &self.ga {
