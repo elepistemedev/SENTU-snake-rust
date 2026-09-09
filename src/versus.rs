@@ -81,6 +81,24 @@ impl VersusMatch {
         }
     }
 
+    /// DQN-vs-DQN: both players use relative brains (9-input, 3-output).
+    pub fn new_relative(net_left: Net, net_right: Net, flavor: VsFlavor) -> Self {
+        Self {
+            game1: Game::with_relative_brain(&net_left),
+            game2: Game::with_relative_brain(&net_right),
+            flavor,
+        }
+    }
+
+    /// Cross GA-vs-DQN: GA left (absolute brain), DQN right (relative brain).
+    pub fn new_cross(ga_net: Net, dqn_net: Net, flavor: VsFlavor) -> Self {
+        Self {
+            game1: Game::with_brain(&ga_net),
+            game2: Game::with_relative_brain(&dqn_net),
+            flavor,
+        }
+    }
+
     /// Advance the match one tick: each player moves at most once. The step is
     /// a no-op once the match is finished (`Game::update` also no-ops on a
     /// completed game, so a dead player stops while the survivor keeps going).
@@ -232,5 +250,34 @@ mod tests {
         }
         assert!(m.is_finished());
         assert_eq!(m.winner(), winner_before);
+    }
+
+    #[test]
+    fn headless_relative_match_terminates_and_yields_winner() {
+        const MAX_TICKS: usize = 10_000;
+        let dqn_net = Net::new_with_sizes(&[9, 32, 3]);
+        let mut m = VersusMatch::new_relative(dqn_net.clone(), dqn_net.clone(), inert_flavor());
+        let mut ticks = 0;
+        while !m.is_finished() && ticks < MAX_TICKS {
+            m.tick();
+            ticks += 1;
+        }
+        assert!(m.is_finished(), "relative-brain match must finish within budget");
+        assert!(m.winner().is_some());
+    }
+
+    #[test]
+    fn headless_cross_match_ga_vs_dqn_terminates() {
+        const MAX_TICKS: usize = 10_000;
+        let ga_net = Net::new();
+        let dqn_net = Net::new_with_sizes(&[9, 32, 3]);
+        let mut m = VersusMatch::new_cross(ga_net, dqn_net, inert_flavor());
+        let mut ticks = 0;
+        while !m.is_finished() && ticks < MAX_TICKS {
+            m.tick();
+            ticks += 1;
+        }
+        assert!(m.is_finished(), "cross GA-vs-DQN match must finish within budget");
+        assert!(m.winner().is_some());
     }
 }
