@@ -76,7 +76,7 @@ El menú indica si hay una sesión DQN pausada reanudable, p. ej. `1) DQN Train
 
 | Vista | Teclas |
 | --- | --- |
-| DQN train | `R` = agente nuevo (conserva el champion); `Esc` = pausar y volver al menú |
+| DQN train | `Tab` = dashboard/HUD compacto; `R` = agente nuevo (conserva el champion); `Esc` = pausar y volver al menú |
 | GA train | `Espacio` = lento/rápido; `Tab` = panel avanzado; `V` = versus interno GA; `Esc` = volver al menú |
 | Versus / cross | `Esc` = volver al menú (también al terminar: `Esc`/`Enter`) |
 
@@ -98,7 +98,8 @@ LEARNING_RATE: 0.001
 EPSILON_START: 1.0
 EPSILON_END: 0.01
 EPSILON_DECAY: 0.995
-TARGET_UPDATE: 100 pasos
+LOSS_EMA_ALPHA: 0.05      // Suavizado de la pérdida TD mostrada
+TARGET_UPDATE_INTERVAL: 100 pasos
 ```
 
 ## 🔄 Flujo de Entrenamiento
@@ -132,9 +133,12 @@ Donde:
 ## 📊 Métricas Mostradas
 
 - **Episode**: Número de partida actual
-- **Score**: Longitud de la serpiente en partida actual
-- **Best**: Mejor score alcanzado
-- **Epsilon**: Tasa de exploración actual
+- **Epsilon**: Tasa de exploración actual (decae 1.0 → 0.01)
+- **Loss**: EMA (α=0.05) del error TD cuadrático medio por batch
+- **Buffer**: Experiencias almacenadas / capacidad (10,000)
+- **Target Updates**: Sincronizaciones de la red target (cada 100 pasos de entrenamiento)
+- **Score / Best**: Puntos de la partida actual / mejor de la sesión
+- **Q-values**: Valor `Q(s,a)` numérico por acción en el panel NEURAL NETWORK; el argmax va con anillo blanco y etiqueta en acento
 
 ## 🔬 Ventajas de DQN vs GA
 
