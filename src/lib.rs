@@ -9,6 +9,7 @@ pub mod nn;
 pub mod pop;
 pub mod sim;
 pub mod stream;
+pub mod render_snake;
 pub mod theme;
 pub mod utils;
 pub mod versus;

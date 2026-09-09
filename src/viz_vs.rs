@@ -193,29 +193,41 @@ impl VizVS {
         }
 
         // Food
-        let theme_food = crate::theme::load_theme().colors().food;
-        draw_rectangle(
-            x + game.food.x as f32 * tile_size + 2.0,
-            y + game.food.y as f32 * tile_size + 2.0,
-            tile_size - 4.0,
-            tile_size - 4.0,
-            theme_food,
+        let theme = crate::theme::load_theme();
+        crate::render_snake::draw_apple(
+            x + game.food.x as f32 * tile_size,
+            y + game.food.y as f32 * tile_size,
+            tile_size,
+            theme,
+            theme.colors().food,
         );
 
         // Snake
         for (i, segment) in game.body.iter().enumerate() {
-            let seg_color = if i == 0 {
-                color
+            let seg_x = x + segment.x as f32 * tile_size;
+            let seg_y = y + segment.y as f32 * tile_size;
+            if i == 0 {
+                crate::render_snake::draw_snake_head(
+                    seg_x,
+                    seg_y,
+                    tile_size,
+                    game.dir,
+                    theme,
+                    color,
+                    game.swallow.head_scale(),
+                );
             } else {
-                Color::new(color.r * 0.7, color.g * 0.7, color.b * 0.7, 1.0)
-            };
-            draw_rectangle(
-                x + segment.x as f32 * tile_size + 1.0,
-                y + segment.y as f32 * tile_size + 1.0,
-                tile_size - 2.0,
-                tile_size - 2.0,
-                seg_color,
-            );
+                let seg_color = Color::new(color.r * 0.7, color.g * 0.7, color.b * 0.7, 1.0);
+                let bulge = game.swallow.bulge_at(i);
+                crate::render_snake::draw_snake_body(
+                    seg_x,
+                    seg_y,
+                    tile_size,
+                    theme,
+                    seg_color,
+                    bulge,
+                );
+            }
         }
 
         // Status indicator
