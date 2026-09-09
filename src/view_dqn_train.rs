@@ -23,6 +23,7 @@ use macroquad::prelude::*;
 
 use crate::champion_store;
 use crate::configs::{GRID_H, GRID_W};
+use crate::dqn_dash::{self, EpisodeHistory};
 use crate::game_dqn::GameDQN;
 use crate::nn::Net;
 
@@ -48,69 +49,6 @@ if dashboard_enabled {
 DqnRenderTarget::Dashboard
 } else {
 DqnRenderTarget::Hud
-}
-}
-
-/// Max entries kept by [`EpisodeHistory`], mirroring `VizAdvanced`'s 50-entry
-/// cap (`viz_advanced.rs`, read-only).
-pub const EPISODE_HISTORY_CAP: usize = 50;
-
-/// Bounded per-episode history ring feeding the dashboard's charts (design
-/// D-7). Pure and macroquad-free.
-///
-/// Invariant: `times.len() == scores.len()` at all times — a `push` appends to
-/// both vectors and eviction `remove(0)` drops the *oldest pair* from both.
-///
-/// `times` holds the completed episode's duration as its step count at
-/// completion (recorded pre-reset in `end_episode`, per the spec — not a
-/// wall-clock `Instant`), so chart 1 ("EPISODE TIMES") is deterministic and
-/// unit-testable.
-///
-/// Slice-A staging note: defined here so the view's tests stay macroquad-free;
-/// design D-1/D-7 place the type inside `dqn_dash.rs`, so slice B relocates
-/// this struct + impl + its tests when the drawing module is created.
-pub struct EpisodeHistory {
-/// Episode durations (step counts at completion), oldest first.
-pub times: Vec<f32>,
-/// Episode final scores, oldest first (index-aligned with `times`).
-pub scores: Vec<usize>,
-cap: usize,
-}
-
-impl EpisodeHistory {
-/// An empty ring capped at [`EPISODE_HISTORY_CAP`] entries.
-pub fn new() -> Self {
-Self {
-times: Vec::new(),
-scores: Vec::new(),
-cap: EPISODE_HISTORY_CAP,
-}
-}
-
-/// Append one `(time, score)` pair; overflow evicts the oldest pair so the
-/// ring holds at most `cap` entries with the newest last.
-pub fn push(&mut self, time: f32, score: usize) {
-debug_assert!(
-self.times.len() == self.scores.len(),
-"EpisodeHistory invariant broken: times/scores out of alignment"
-);
-self.times.push(time);
-self.scores.push(score);
-while self.len() > self.cap {
-self.times.remove(0);
-self.scores.remove(0);
-}
-}
-
-/// Empty both vectors (fresh-agent session reset).
-pub fn clear(&mut self) {
-self.times.clear();
-self.scores.clear();
-}
-
-/// Number of recorded episodes (`scores.len() == times.len()`).
-pub fn len(&self) -> usize {
-self.scores.len()
 }
 }
 
@@ -285,17 +223,30 @@ impl DqnTrainView {
         &self.history
     }
 
-    /// Draw the DQN-style HUD (Episode/Score/Best/Epsilon) plus the snake grid.
-    /// The grid is centered and sized from the current screen dimensions — the
-    /// old `main_dqn` used hardcoded `offset_x = 250`, `tile_size = 20` offsets
-    /// that assumed an 800×600 window.
+    /// Draw the current frame. The advanced dashboard is the default target
+    /// (design D-3): [`dqn_render_target`] routes to the `dqn_dash` mirror (fed
+    /// by the live game plus this view's `episode`/`best_score`/history
+    /// bookkeeping); the `Tab`-toggled legacy compact HUD draws through
+    /// [`DqnTrainView::draw_hud`]. Dispatching never perturbs the in-flight
+    /// episode or session state.
     pub fn draw(&self) {
-        // SLICE B placeholder: this method becomes the design D-3 dispatcher
-        // `match dqn_render_target(self.dashboard) { Dashboard =>
-        // dqn_dash::draw(&self.game, self.episode, self.best_score,
-        // &self.history), Hud => self.draw_hud() }` once `dqn_dash.rs` exists;
-        // the compact body below moves unchanged into a private `draw_hud`.
-        // Until then the visible DQN output stays compact in both targets.
+        match dqn_render_target(self.dashboard) {
+            DqnRenderTarget::Dashboard => dqn_dash::draw(
+                &self.game,
+                self.episode,
+                self.best_score,
+                &self.history,
+            ),
+            DqnRenderTarget::Hud => self.draw_hud(),
+        }
+    }
+
+    /// Draw the legacy compact DQN-style HUD (Episode/Score/Best/Epsilon) plus
+    /// the snake grid. The grid is centered and sized from the current screen
+    /// dimensions — the old `main_dqn` used hardcoded `offset_x = 250`,
+    /// `tile_size = 20` offsets that assumed an 800×600 window. Moved unchanged
+    /// out of the former single `draw()` (design D-3).
+    fn draw_hud(&self) {
         clear_background(BLACK);
 
         draw_text(
@@ -632,62 +583,6 @@ mod tests {
         assert_eq!(view.episode(), 7, "toggling never resets the session");
         assert_eq!(view.best_score(), 11, "toggling never resets the session best");
         std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
-    }
-
-    // --- Slice A: EpisodeHistory ring (design D-7; staged in the view module
-    // and relocated into `dqn_dash.rs` when the drawing module lands, slice B) ---
-
-    #[test]
-    fn history_ring_caps_at_fifty_and_evicts_the_oldest_pair() {
-        let mut history = EpisodeHistory::new();
-        for i in 0..60 {
-            history.push(i as f32, (i * 10) as usize);
-        }
-        assert_eq!(
-            history.len(),
-            EPISODE_HISTORY_CAP,
-            "ring must hold exactly EPISODE_HISTORY_CAP entries"
-        );
-        assert_eq!(history.len(), 50, "60 pushes must cap the ring at 50");
-        assert_eq!(history.times.first(), Some(&10.0), "oldest pair (time 0) evicted");
-        assert_eq!(history.scores.first(), Some(&100), "oldest pair (score 0) evicted");
-        assert_eq!(history.times.last(), Some(&59.0), "newest pair present");
-        assert_eq!(history.scores.last(), Some(&590), "newest pair present");
-    }
-
-    #[test]
-    fn history_times_and_scores_stay_index_aligned_across_evictions() {
-        let mut history = EpisodeHistory::new();
-        for i in 0..55 {
-            history.push(i as f32, (i * 10) as usize);
-        }
-        assert_eq!(history.len(), 50);
-        for (n, (time, score)) in history
-            .times
-            .iter()
-            .zip(history.scores.iter())
-            .enumerate()
-        {
-            assert_eq!(*time, (n + 5) as f32, "pair {n} time out of order");
-            assert_eq!(*score, (n + 5) * 10, "pair {n} score out of order");
-        }
-    }
-
-    #[test]
-    fn history_clear_empties_both_vectors_and_the_ring_stays_reusable() {
-        let mut history = EpisodeHistory::new();
-        history.push(1.0, 1);
-        history.push(2.0, 4);
-        assert_eq!(history.len(), 2);
-        history.clear();
-        assert_eq!(history.len(), 0, "clear empties the ring");
-        assert!(
-            history.times.is_empty() && history.scores.is_empty(),
-            "clear empties both vectors"
-        );
-        history.push(3.0, 9);
-        assert_eq!(history.times, vec![3.0], "cleared ring accepts new entries");
-        assert_eq!(history.scores, vec![9]);
     }
 
     // --- Slice A: episode-end / fresh-agent history bookkeeping (spec) ---------
