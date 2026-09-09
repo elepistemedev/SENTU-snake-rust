@@ -15,6 +15,7 @@ pub struct GameDQN {
     pub steps: usize,
     pub is_complete: bool,
     prev_distance: f64,
+    steps_without_food: usize,
 }
 
 impl GameDQN {
@@ -34,6 +35,7 @@ impl GameDQN {
             steps: 0,
             is_complete: false,
             prev_distance: Self::calculate_distance(&head, &food),
+            steps_without_food: 0,
         }
     }
 
@@ -47,6 +49,7 @@ impl GameDQN {
         self.steps = 0;
         self.is_complete = false;
         self.prev_distance = Self::calculate_distance(&self.head, &self.food);
+        self.steps_without_food = 0;
     }
 
     /// Current 9-input heading-relative observation (3 directions ×
@@ -68,6 +71,7 @@ impl GameDQN {
         let action = self.agent.select_action(&state);
         self.dir = relative_dir(self.dir, action);
         self.steps += 1;
+        self.steps_without_food += 1;
         
         // Move snake
         self.head.x += self.dir.value().0;
@@ -87,11 +91,15 @@ impl GameDQN {
             self.score += 1;
             self.body.push(self.head.clone());
             self.food = self.get_random_empty_pos();
+            self.prev_distance = Self::calculate_distance(&self.head, &self.food);
+            self.steps_without_food = 0;
         } else {
-            // Normal move
+            // Normal move — symmetric distance shaping
             let new_distance = Self::calculate_distance(&self.head, &self.food);
             if new_distance < self.prev_distance {
                 reward = 0.1; // Reward for getting closer
+            } else {
+                reward = -0.1; // Penalty for getting farther
             }
             self.prev_distance = new_distance;
             
@@ -106,6 +114,13 @@ impl GameDQN {
         
         // Check step limit
         if self.steps >= NUM_SIM_STEPS * 2 {
+            done = true;
+            self.is_complete = true;
+        }
+
+        // Anti-stagnation: end episode if no food eaten for too long
+        if !done && self.steps_without_food >= NUM_SIM_STEPS {
+            reward = -0.5;
             done = true;
             self.is_complete = true;
         }
