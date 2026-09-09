@@ -11,8 +11,8 @@ STRICT TDD ACTIVE: test runner `cargo test`. Tasks marked **[RED-first]** start 
 ## Phase 1 — Versus arena
 
 - [x] T1.1 `src/viz_vs.rs`: add `VsFlavor` (titles, colors, `record: Option<usize>`, winner/tie/back labels) with a GA-default whose output equals today's strings byte-for-byte; route existing `draw` through the default flavor.
-- [ ] T1.2 `src/versus.rs` core (no macroquad): `MatchPlayers`, `run_match_tick`, `resolve_winner(s1, s2) -> Winner`. **[RED-first]** tests: Left/Right/Tie; headless arena of two random-nets `Game`s terminates within a bounded budget (existing no-food step limits guarantee it) and yields a winner.
-- [ ] T1.3 Versus view renderer on `VizVS::draw_flavored` + winner overlay + Esc handling (composable for all three flavors).
+- [x] T1.2 `src/versus.rs` core (no macroquad): `MatchPlayers`, `run_match_tick`, `resolve_winner(s1, s2) -> Winner`. **[RED-first]** tests: Left/Right/Tie; headless arena of two random-nets `Game`s terminates within a bounded budget (existing no-food step limits guarantee it) and yields a winner.
+- [x] T1.3 Versus view renderer on `VizVS::draw_flavored` + winner overlay + Esc handling (composable for all three flavors).
 
 ## Phase 2 — DQN trainer + champion
 
