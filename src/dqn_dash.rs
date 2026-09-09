@@ -22,6 +22,8 @@
 //!   documented DQN episode bound `FULL_BAR = (NUM_SIM_STEPS * 2) as f32`
 //!   (200.0 today; `score <= steps <= 200` in `GameDQN`), clamped to [0,1].
 //!   The GA reference's hardcoded `/20` denominator is NOT copied.
+//! - `ema_update`/`argmax_index`/`loss_ema`/`target_updates` viven en
+//!   `crate::dqn` (testeadas); este módulo solo las consume.
 //!
 //! Drawing entry: [`draw`] borrows only `&GameDQN`, the view's two scalars
 //! (`episode`, `best_score`) and `&EpisodeHistory` — no `DqnTrainView` crosses
@@ -293,10 +295,11 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
 /// Bottom-left model-info panel — reference `draw_model_info` geometry verbatim
 /// (`x=20, y=screen_h − 300, w=screen_h − 320, h=280`), title "DQN TRAIN".
 /// Every row value comes from the pub seams (design D-5/D-6), never a literal:
-/// architecture/replay/batch/gamma/LR/epsilon-schedule/step-limit, then an
+/// architecture/batch/gamma/LR/epsilon-schedule/step-limit, then an
 /// accent controls line at the panel bottom (replaces the shell hint in this
-/// zone — design D-8).
-fn draw_model_info(game: &GameDQN, screen_h: f32) {
+/// zone — design D-8). The replay-buffer row moved to the right column's
+/// TRAINING STATS panel.
+fn draw_model_info(_game: &GameDQN, screen_h: f32) {
     let panel_x = 20.0;
     let panel_y = screen_h - 300.0;
     let panel_w = screen_h - 320.0;
@@ -309,18 +312,6 @@ fn draw_model_info(game: &GameDQN, screen_h: f32) {
         &format!(
             "Architecture: {}x{}x{}",
             INP_LAYER_SIZE, HIDDEN_LAYER_SIZE, OUTPUT_LAYER_SIZE
-        ),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
-    y += 26.0;
-    draw_text(
-        &format!(
-            "Replay: {}/{}",
-            game.agent.replay_buffer.len(),
-            REPLAY_BUFFER_SIZE
         ),
         panel_x + 20.0,
         y,
@@ -407,9 +398,10 @@ fn draw_chart(x: f32, y: f32, w: f32, h: f32, title: &str, data: &[f32], color: 
 
 /// Right column: stacked stats panels, score bars, and the per-episode history
 /// charts — reference `draw_stats_panels` geometry (`x = left_col_width + 550
-/// + 60`, `w = screen_w − x − 20`). Panel slots mirror the reference exactly
-/// (EPISODE STATS @ y=20 h=150, RUN STATS @ y=200 h=130, SCORE bar @ 350,
-/// BEST bar @ 470, charts @ 600), with DQN rows/data inside. The SCORE and BEST
+/// + 60`, `w = screen_w − x − 20`). Panel slots re-stacked for the DQN
+/// workflow: TRAINING STATS (Episode/Epsilon/Loss/Buffer/Target Updates/Best)
+/// @ y=20 h=180, RUN STATS @ y=230 h=130, SCORE bar @ 380, BEST bar @ 500,
+/// charts @ 630, with DQN rows/data inside. The SCORE and BEST
 /// bars both use [`score_bar_fraction`] over the documented episode bound — the
 /// GA `/20` denominator is never used (design §3).
 fn draw_stats_panels(
@@ -425,10 +417,12 @@ fn draw_stats_panels(
     let panel_x = left_col_width + nn_width + 60.0;
     let panel_w = screen_w - panel_x - 20.0;
 
-    // EPISODE STATS (h=150; reference's "SIM STATS" slot at y=20)
+    // TRAINING STATS (h=180, six compact rows @24px). Metrics mirror the DQN
+    // workflow: episode, exploration rate, smoothed TD loss, replay-buffer
+    // fill, target-network syncs, and the session best.
     let stats_y = 20.0;
-    draw_panel(panel_x, stats_y, panel_w, 150.0, "EPISODE STATS");
-    let mut y = stats_y + 45.0;
+    draw_panel(panel_x, stats_y, panel_w, 180.0, "TRAINING STATS");
+    let mut y = stats_y + 55.0;
     draw_text(
         &format!("Episode: {}", episode),
         panel_x + 20.0,
@@ -436,15 +430,7 @@ fn draw_stats_panels(
         TEXT_SIZE,
         TEXT_COLOR,
     );
-    y += 30.0;
-    draw_text(
-        &format!("Best: {}", best_score),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
-    y += 30.0;
+    y += 24.0;
     draw_text(
         &format!("Epsilon: {:.3}", game.agent.get_epsilon()),
         panel_x + 20.0,
@@ -452,9 +438,45 @@ fn draw_stats_panels(
         TEXT_SIZE,
         TEXT_COLOR,
     );
+    y += 24.0;
+    draw_text(
+        &format!("Loss: {:.5}", game.agent.loss_ema()),
+        panel_x + 20.0,
+        y,
+        TEXT_SIZE,
+        TEXT_COLOR,
+    );
+    y += 24.0;
+    draw_text(
+        &format!(
+            "Buffer: {}/{}",
+            game.agent.replay_buffer.len(),
+            REPLAY_BUFFER_SIZE
+        ),
+        panel_x + 20.0,
+        y,
+        TEXT_SIZE,
+        TEXT_COLOR,
+    );
+    y += 24.0;
+    draw_text(
+        &format!("Target Updates: {}", game.agent.target_updates()),
+        panel_x + 20.0,
+        y,
+        TEXT_SIZE,
+        TEXT_COLOR,
+    );
+    y += 24.0;
+    draw_text(
+        &format!("Best: {}", best_score),
+        panel_x + 20.0,
+        y,
+        TEXT_SIZE,
+        TEXT_COLOR,
+    );
 
-    // RUN STATS (h=130; reference's "VIZ STATS" slot at y=200)
-    let run_y = stats_y + 150.0 + 30.0;
+    // RUN STATS (h=130) — shifted down to y=230 to fit the taller TRAINING STATS.
+    let run_y = 230.0;
     draw_panel(panel_x, run_y, panel_w, 130.0, "RUN STATS");
     y = run_y + 45.0;
     draw_text(
@@ -473,8 +495,8 @@ fn draw_stats_panels(
         TEXT_COLOR,
     );
 
-    // SCORE bar (reference "VIZ SCORE" slot at y=350): live game score.
-    let score_bar_y = run_y + 130.0 + 20.0;
+    // SCORE bar (live game score) at y=380.
+    let score_bar_y = 380.0;
     draw_panel(panel_x, score_bar_y, panel_w, 100.0, "SCORE");
     let score_pct = score_bar_fraction(game.score);
     let bar_y = score_bar_y + 50.0;
@@ -488,8 +510,8 @@ fn draw_stats_panels(
         WHITE,
     );
 
-    // BEST bar (reference "MAX SCORE" slot at y=470): session best.
-    let best_bar_y = score_bar_y + 100.0 + 20.0;
+    // BEST bar (session best) at y=500.
+    let best_bar_y = 500.0;
     draw_panel(panel_x, best_bar_y, panel_w, 100.0, "BEST");
     let best_pct = score_bar_fraction(best_score);
     let bar_y = best_bar_y + 50.0;
@@ -503,9 +525,8 @@ fn draw_stats_panels(
         WHITE,
     );
 
-    // History charts (reference's chart slot at y=600): EPISODE TIMES holds the
-    // step-count durations, EPISODE SCORES the final scores.
-    let chart_y = best_bar_y + 100.0 + 30.0;
+    // History charts at y=630.
+    let chart_y = 630.0;
     let chart_h = (screen_h - chart_y - 20.0) / 2.0 - 10.0;
     draw_chart(
         panel_x,
