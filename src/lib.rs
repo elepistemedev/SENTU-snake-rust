@@ -9,6 +9,8 @@ pub mod sim;
 pub mod stream;
 pub mod utils;
 pub mod versus;
+pub mod view_dqn_train;
+pub mod view_dqn_versus;
 pub mod viz;
 pub mod viz_advanced;
 pub mod viz_vs;
