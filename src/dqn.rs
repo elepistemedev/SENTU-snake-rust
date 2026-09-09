@@ -15,6 +15,8 @@ pub const LEARNING_RATE: f64 = 0.001;
 pub const EPSILON_START: f64 = 1.0;
 pub const EPSILON_END: f64 = 0.01;
 pub const EPSILON_DECAY: f64 = 0.995;
+pub const TARGET_UPDATE_INTERVAL: usize = 100;
+pub const LOSS_EMA_ALPHA: f64 = 0.05;
 
 #[derive(Clone)]
 pub struct Experience {
@@ -60,6 +62,25 @@ impl ReplayBuffer {
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
+}
+
+/// Exponential moving average update (pure): `alpha * sample + (1 - alpha) *
+/// prev`. Precondition: `alpha` in [0, 1] (not validated — internal constant).
+pub fn ema_update(prev: f64, sample: f64, alpha: f64) -> f64 {
+    alpha * sample + (1.0 - alpha) * prev
+}
+
+/// Index of the maximum value (pure). On ties the FIRST maximum index wins —
+/// the dashboard highlights this action, so the choice must be deterministic.
+/// Callers pass a non-empty slice (an empty slice returns 0).
+pub fn argmax_index(values: &[f64]) -> usize {
+    let mut best = 0usize;
+    for (i, &v) in values.iter().enumerate().skip(1) {
+        if v > values[best] {
+            best = i;
+        }
+    }
+    best
 }
 
 pub struct DQNAgent {
@@ -174,5 +195,36 @@ mod tests {
         assert_eq!(EPSILON_START, 1.0);
         assert_eq!(EPSILON_END, 0.01);
         assert_eq!(EPSILON_DECAY, 0.995);
+        assert_eq!(TARGET_UPDATE_INTERVAL, 100);
+        assert_eq!(LOSS_EMA_ALPHA, 0.05);
+    }
+
+    // --- Slice dqn-training-metrics: consts puros y helpers -------------------
+
+    #[test]
+    fn training_metrics_constants_keep_their_pinned_values() {
+        assert_eq!(TARGET_UPDATE_INTERVAL, 100);
+        assert_eq!(LOSS_EMA_ALPHA, 0.05);
+    }
+
+    #[test]
+    fn ema_update_interpolates_between_previous_and_sample() {
+        assert_eq!(ema_update(2.0, 4.0, 0.0), 2.0, "alpha 0 keeps the previous value");
+        assert_eq!(ema_update(2.0, 4.0, 1.0), 4.0, "alpha 1 takes the sample");
+        assert!(
+            (ema_update(2.0, 4.0, 0.5) - 3.0).abs() < 1e-12,
+            "alpha 0.5 is the midpoint"
+        );
+    }
+
+    #[test]
+    fn argmax_index_returns_the_first_index_of_the_maximum() {
+        assert_eq!(argmax_index(&[0.1, 0.9, 0.4, 0.2]), 1);
+        assert_eq!(argmax_index(&[0.9, 0.1, 0.4, 0.2]), 0, "leading max wins");
+        assert_eq!(
+            argmax_index(&[0.5, 0.9, 0.9, 0.1]),
+            1,
+            "on a tie the FIRST maximum index wins (documented dashboard semantics)"
+        );
     }
 }
