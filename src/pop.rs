@@ -2,9 +2,9 @@
 //! Gestiona múltiples streams (islas) de agentes neuro-evolutivos
 //! También es responsable del Rejuvenecimiento de Islas
 
-use std::time::Instant;
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
 
 use rand::Rng;
 
@@ -27,10 +27,10 @@ pub struct GenerationSummary {
 impl Population {
     pub fn new() -> Self {
         let mut streams = Vec::new();
-        
+
         // Try to load saved model
         let saved_net = Self::load_best_net();
-        
+
         for _ in 0..NUM_STREAMS {
             let mut stream = Stream::new();
             if let Some(ref net) = saved_net {
@@ -119,11 +119,11 @@ impl Population {
 
     pub fn get_top_games(&self, count: usize) -> Vec<&crate::game::Game> {
         let mut all_games = Vec::new();
-        
+
         for stream in self.streams.iter() {
             all_games.extend(stream.get_all_games());
         }
-        
+
         all_games.sort_by(|a, b| b.score().cmp(&a.score()));
         all_games.truncate(count);
         all_games
@@ -137,7 +137,11 @@ impl Population {
         }
     }
 
-    fn load_best_net() -> Option<Net> {
+    /// Load the best net saved by a previous run from `best_snake.json`
+    /// (missing or corrupt → `None`, never a panic). Public so the standalone
+    /// GA-versus and cross-match views can build a champion arena without a
+    /// running `Simulation`.
+    pub fn load_best_net() -> Option<Net> {
         if Path::new("best_snake.json").exists() {
             let json = fs::read_to_string("best_snake.json").ok()?;
             serde_json::from_str(&json).ok()
