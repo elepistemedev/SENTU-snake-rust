@@ -29,12 +29,10 @@
 //! (`episode`, `best_score`) and `&EpisodeHistory` — no `DqnTrainView` crosses
 //! into this module (design D-3/D-4).
 
-use crate::configs::{
-    GRID_H, GRID_W, HIDDEN_LAYER_SIZE, INP_LAYER_SIZE, NUM_SIM_STEPS, OUTPUT_LAYER_SIZE,
-};
+use crate::configs::{GRID_H, GRID_W, NUM_SIM_STEPS};
 use crate::dqn::{
-    argmax_index, BATCH_SIZE, EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE,
-    REPLAY_BUFFER_SIZE,
+    argmax_index, BATCH_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_INP_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE,
+    EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE, REPLAY_BUFFER_SIZE,
 };
 use crate::game_dqn::GameDQN;
 use macroquad::prelude::*;
@@ -196,14 +194,14 @@ fn draw_grid(game: &GameDQN, screen_h: f32) {
 /// Center column: full-height "NEURAL NETWORK" panel — reference
 /// `draw_neural_network` geometry verbatim (`left_col_width = screen_h − 320`,
 /// `panel_x = left_col_width + 40`, `panel_w = 550`, `panel_h = screen_h − 40`,
-/// `y = 20`). Fed LIVE every frame: the current 12-input observation through
-/// the q-network (`predict(&game.observation()).last()`) — same sigmoid output
-/// domain as the reference, so the output-node color mapping transfers
-/// unchanged (design D-4/D-5). Input nodes I0..I11 (accent, r=7), hidden nodes
-/// H0..H7 (orange `(0.9,0.6,0.0)`, r=8), output nodes (r=10) colored by
+/// `y = 20`). Fed LIVE every frame: the current 9-input relative observation
+/// through the q-network (`predict(&game.observation()).last()`) — same sigmoid
+/// output domain as the reference, so the output-node color mapping transfers
+/// unchanged (design D-4/D-5). Input nodes I0..I8 (accent, r=7), hidden nodes
+/// H0..H31 (orange `(0.9,0.6,0.0)`, r=8), output nodes (r=10) colored by
 /// [`output_intensity`] → `(v, v*0.3, v*0.9)` with labels
-/// `["LEFT","RIGHT","BOTTOM","TOP"]` (order matches `GameDQN::step`'s
-/// action 0..3 mapping).
+/// `["STRAIGHT","TURN LEFT","TURN RIGHT"]` (order matches relative action
+/// 0=forward, 1=left-turn, 2=right-turn).
 fn draw_neural_network(game: &GameDQN, screen_h: f32) {
     let left_col_width = screen_h - 320.0;
     let panel_w = 550.0;
@@ -223,25 +221,25 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
     // Vertical layout - layers from left to right
     let layer_spacing = 160.0;
 
-    // Input layer (12 nodes) - leftmost
+    // Input layer (9 nodes) - leftmost
     let input_x = panel_x + 80.0;
     let input_start_y = panel_y + 80.0;
-    let input_spacing = (panel_h - 160.0) / (INP_LAYER_SIZE as f32 - 1.0);
+    let input_spacing = (panel_h - 160.0) / (DQN_INP_LAYER_SIZE as f32 - 1.0);
 
-    // Hidden layer (8 nodes) - middle
+    // Hidden layer (32 nodes) - middle
     let hidden_x = input_x + layer_spacing;
     let hidden_start_y = panel_y + 150.0;
-    let hidden_spacing = (panel_h - 300.0) / (HIDDEN_LAYER_SIZE as f32 - 1.0);
+    let hidden_spacing = (panel_h - 300.0) / (DQN_HIDDEN_LAYER_SIZE as f32 - 1.0);
 
-    // Output layer (4 nodes) - rightmost
+    // Output layer (3 nodes) - rightmost
     let output_x = hidden_x + layer_spacing;
     let output_start_y = panel_y + 250.0;
-    let output_spacing = (panel_h - 500.0) / (OUTPUT_LAYER_SIZE as f32 - 1.0);
-    let output_labels = ["LEFT", "RIGHT", "BOTTOM", "TOP"];
+    let output_spacing = (panel_h - 500.0) / (DQN_OUTPUT_LAYER_SIZE as f32 - 1.0);
+    let output_labels = ["STRAIGHT", "TURN LEFT", "TURN RIGHT"];
 
     // Draw ALL connections: Input -> Hidden
-    for i in 0..INP_LAYER_SIZE {
-        for j in 0..HIDDEN_LAYER_SIZE {
+    for i in 0..DQN_INP_LAYER_SIZE {
+        for j in 0..DQN_HIDDEN_LAYER_SIZE {
             draw_line(
                 input_x,
                 input_start_y + i as f32 * input_spacing,
@@ -254,8 +252,8 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
     }
 
     // Draw ALL connections: Hidden -> Output
-    for i in 0..HIDDEN_LAYER_SIZE {
-        for j in 0..OUTPUT_LAYER_SIZE {
+    for i in 0..DQN_HIDDEN_LAYER_SIZE {
+        for j in 0..DQN_OUTPUT_LAYER_SIZE {
             draw_line(
                 hidden_x,
                 hidden_start_y + i as f32 * hidden_spacing,
@@ -268,14 +266,14 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
     }
 
     // Draw input nodes
-    for i in 0..INP_LAYER_SIZE {
+    for i in 0..DQN_INP_LAYER_SIZE {
         let y = input_start_y + i as f32 * input_spacing;
         draw_circle(input_x, y, 7.0, ACCENT_COLOR);
         draw_text(&format!("I{}", i), input_x - 35.0, y + 6.0, 18.0, TEXT_COLOR);
     }
 
     // Draw hidden nodes
-    for i in 0..HIDDEN_LAYER_SIZE {
+    for i in 0..DQN_HIDDEN_LAYER_SIZE {
         let y = hidden_start_y + i as f32 * hidden_spacing;
         draw_circle(hidden_x, y, 8.0, Color::new(0.9, 0.6, 0.0, 1.0));
         draw_text(&format!("H{}", i), hidden_x - 35.0, y + 6.0, 18.0, TEXT_COLOR);
@@ -324,7 +322,7 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
     draw_text(
         &format!(
             "Architecture: {}x{}x{}",
-            INP_LAYER_SIZE, HIDDEN_LAYER_SIZE, OUTPUT_LAYER_SIZE
+            DQN_INP_LAYER_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE
         ),
         panel_x + 20.0,
         y,
