@@ -142,6 +142,11 @@ pub fn draw_apple(x: f32, y: f32, tile_size: f32, theme: GameTheme, color: Color
     let cy = y + tile_size * 0.54;
     let r = (tile_size - 4.0) * 0.44;
 
+    // Apple outline / shadow if Meadow theme
+    if theme == GameTheme::Meadow {
+        draw_circle(cx, cy, r + 1.2, Color::new(0.60, 0.10, 0.16, 1.0));
+    }
+
     // Apple main body
     draw_circle(cx, cy, r, color);
 
@@ -175,7 +180,7 @@ pub fn draw_apple(x: f32, y: f32, tile_size: f32, theme: GameTheme, color: Color
     );
 }
 
-/// Draws snake head: classic solid square for Retro, or organic rounded head with directional eyes for Arcade/Pleasant.
+/// Draws snake head: classic solid square for Retro, or organic rounded head with directional eyes for Arcade/Pleasant/Meadow.
 pub fn draw_snake_head(
     x: f32,
     y: f32,
@@ -195,6 +200,11 @@ pub fn draw_snake_head(
     let cy = y + tile_size * 0.5;
     let hx = cx - size * 0.5;
     let hy = cy - size * 0.5;
+
+    // Optional illustrated dark contour outline (Meadow theme)
+    if let Some(outline) = theme.colors().outline {
+        draw_circle(cx, cy, size * 0.54, outline);
+    }
 
     // Head base (smooth organic circle)
     draw_circle(cx, cy, size * 0.50, color);
@@ -216,7 +226,7 @@ pub fn draw_snake_head(
     }
 }
 
-/// Draws snake body segment: classic solid square for Retro, or rounded segment with swallow bulge for Arcade/Pleasant.
+/// Draws snake body segment: classic solid square for Retro, or rounded segment with swallow bulge for Arcade/Pleasant/Meadow.
 pub fn draw_snake_body(
     x: f32,
     y: f32,
@@ -234,11 +244,19 @@ pub fn draw_snake_body(
     let cx = x + tile_size * 0.5;
     let cy = y + tile_size * 0.5;
 
+    let outline = theme.colors().outline;
+
     if bulge_scale > 0.0 {
         // Digestion wave bulge (enlarged with inner digestion highlight)
+        if let Some(outline_color) = outline {
+            draw_circle(cx, cy, size * 0.56, outline_color);
+        }
         draw_circle(cx, cy, size * 0.52, color);
         draw_circle(cx, cy, size * 0.28, Color::new(1.0, 1.0, 1.0, 0.35));
     } else {
+        if let Some(outline_color) = outline {
+            draw_circle(cx, cy, size * 0.52, outline_color);
+        }
         draw_circle(cx, cy, size * 0.48, color);
     }
 }

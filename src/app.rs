@@ -205,6 +205,7 @@ impl App {
             crate::theme::GameTheme::Retro => 0,
             crate::theme::GameTheme::Arcade => 1,
             crate::theme::GameTheme::Pleasant => 2,
+            crate::theme::GameTheme::Meadow => 3,
         };
         Self {
             mode: AppMode::Menu,
@@ -295,13 +296,13 @@ impl App {
         }
         if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) || is_key_pressed(KeyCode::Left) {
             if self.theme_selection == 0 {
-                self.theme_selection = 2;
+                self.theme_selection = 3;
             } else {
                 self.theme_selection -= 1;
             }
         }
         if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) || is_key_pressed(KeyCode::Right) {
-            self.theme_selection = (self.theme_selection + 1) % 3;
+            self.theme_selection = (self.theme_selection + 1) % 4;
         }
         if is_key_pressed(KeyCode::Key1) {
             self.theme_selection = 0;
@@ -309,12 +310,15 @@ impl App {
             self.theme_selection = 1;
         } else if is_key_pressed(KeyCode::Key3) {
             self.theme_selection = 2;
+        } else if is_key_pressed(KeyCode::Key4) {
+            self.theme_selection = 3;
         }
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter) {
             let selected_theme = match self.theme_selection {
                 0 => crate::theme::GameTheme::Retro,
                 1 => crate::theme::GameTheme::Arcade,
-                _ => crate::theme::GameTheme::Pleasant,
+                2 => crate::theme::GameTheme::Pleasant,
+                _ => crate::theme::GameTheme::Meadow,
             };
             self.active_theme = selected_theme;
             crate::theme::save_theme(selected_theme).ok();
@@ -426,6 +430,7 @@ impl App {
                     crate::theme::GameTheme::Retro => 0,
                     crate::theme::GameTheme::Arcade => 1,
                     crate::theme::GameTheme::Pleasant => 2,
+                    crate::theme::GameTheme::Meadow => 3,
                 };
             }
         }
@@ -588,14 +593,15 @@ impl App {
         let preview_theme = match self.theme_selection {
             0 => crate::theme::GameTheme::Retro,
             1 => crate::theme::GameTheme::Arcade,
-            _ => crate::theme::GameTheme::Pleasant,
+            2 => crate::theme::GameTheme::Pleasant,
+            _ => crate::theme::GameTheme::Meadow,
         };
         let preview_colors = preview_theme.colors();
 
-        // Left column: Theme list cards
+        // Left column: Theme list cards (4 themes)
         let list_x = w * 0.08;
-        let list_y = h * 0.22;
-        let row_h = h * 0.21;
+        let list_y = h * 0.17;
+        let row_h = h * 0.18;
 
         for (i, &theme) in themes.iter().enumerate() {
             let y = list_y + i as f32 * row_h;
@@ -603,7 +609,7 @@ impl App {
             let is_active = theme == self.active_theme;
 
             let card_w = w * 0.44;
-            let card_h = row_h * 0.86;
+            let card_h = row_h * 0.88;
 
             let bg_color = if is_selected {
                 Color::new(0.12, 0.15, 0.22, 1.0)
@@ -649,9 +655,9 @@ impl App {
 
         // Right column: Live preview panel
         let preview_x = w * 0.56;
-        let preview_y = h * 0.22;
+        let preview_y = h * 0.17;
         let preview_w = w * 0.36;
-        let preview_h = row_h * 2.86;
+        let preview_h = row_h * 3.88;
 
         draw_rectangle(preview_x, preview_y, preview_w, preview_h, Color::new(0.05, 0.05, 0.07, 1.0));
         draw_rectangle_lines(preview_x, preview_y, preview_w, preview_h, 2.0, Color::new(0.3, 0.35, 0.45, 1.0));
@@ -734,7 +740,7 @@ impl App {
 
         // Footer instructions
         self.centered_text(
-            "[1-3] o [Arriba/Abajo] Seleccionar    [Enter] Guardar y Salir    [ESC] Cancelar",
+            "[1-4] o [Arriba/Abajo] Seleccionar    [Enter] Guardar y Salir    [ESC] Cancelar",
             center_x,
             h * 0.94,
             18.0,
