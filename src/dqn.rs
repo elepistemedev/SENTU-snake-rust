@@ -3,7 +3,6 @@
 
 use rand::Rng;
 use crate::nn::Net;
-use crate::*;
 
 // DQN hyperparameters are `pub` (design D-6): the dashboard's model-info
 // panel displays the real constants the agent is constructed with. Values are
