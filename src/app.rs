@@ -31,10 +31,10 @@ use crate::view_dqn_versus::DqnVersusView;
 use crate::view_ga_train::GaTrainView;
 use crate::view_ga_versus::GaVersusView;
 
-/// Number of playable menu entries (number keys 1..=5).
-pub const MENU_ENTRY_COUNT: usize = 5;
+/// Number of playable menu entries (number keys 1..=6).
+pub const MENU_ENTRY_COUNT: usize = 6;
 
-/// The six shell states.
+/// The seven shell states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {
     /// Welcome menu; nothing steps here.
@@ -49,10 +49,12 @@ pub enum AppMode {
     GaVersus,
     /// Cross match: GA champion vs DQN champion.
     DqnVsGa,
+    /// Theme and visual configuration.
+    ThemeConfig,
 }
 
 impl AppMode {
-    /// Is this mode one of the five playable views (not the menu)?
+    /// Is this mode one of the playable or settings views (not the menu)?
     pub fn is_view(self) -> bool {
         self != AppMode::Menu
     }
@@ -61,7 +63,7 @@ impl AppMode {
 /// A navigation action the shell can hand the transition table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    /// A menu number key (`1`..=`5`) selecting a view.
+    /// A menu number key (`1`..=`6`) selecting a view.
     Select(u8),
     /// `Esc`: quit from the menu, back-to-menu from any view.
     Esc,
@@ -95,6 +97,8 @@ pub enum Transition {
     GaVersusNew,
     /// Enter DQN-vs-GA with a fresh transient match.
     CrossNew,
+    /// Enter theme configuration view.
+    ThemeConfig,
 }
 
 /// Pure transition table (macroquad-free; unit-tested headless).
@@ -122,6 +126,7 @@ pub fn next_mode(mode: AppMode, action: Action, has_dqn: bool, has_ga: bool) -> 
         (AppMode::Menu, Action::Select(3)) => Transition::GaTrainNew,
         (AppMode::Menu, Action::Select(4)) => Transition::GaVersusNew,
         (AppMode::Menu, Action::Select(5)) => Transition::CrossNew,
+        (AppMode::Menu, Action::Select(6)) => Transition::ThemeConfig,
         (AppMode::Menu, Action::Select(_)) => Transition::Stay,
         // Esc from any view: pause (don't destroy) trainers and return to menu.
         (view, Action::Esc) if view.is_view() => Transition::ToMenu,
@@ -178,6 +183,10 @@ pub struct App {
     ga: Option<GaTrainView>,
     /// Active transient match, `Some` only in a match mode.
     match_view: Option<MatchView>,
+    /// Currently active visual theme.
+    active_theme: crate::theme::GameTheme,
+    /// Currently highlighted theme index in the ThemeConfig screen (0..3).
+    theme_selection: usize,
     /// Set when the user asked to quit (`Esc` on the menu).
     quit: bool,
 }
@@ -191,9 +200,17 @@ impl Default for App {
 impl App {
     /// A fresh shell: menu shown, no trainers or matches running yet.
     pub fn new() -> Self {
+        let active_theme = crate::theme::load_theme();
+        let theme_selection = match active_theme {
+            crate::theme::GameTheme::Retro => 0,
+            crate::theme::GameTheme::Arcade => 1,
+            crate::theme::GameTheme::Pleasant => 2,
+        };
         Self {
             mode: AppMode::Menu,
             menu_selection: 0,
+            active_theme,
+            theme_selection,
             dqn: None,
             ga: None,
             match_view: None,
@@ -227,6 +244,7 @@ impl App {
             AppMode::DqnTrain => self.handle_dqn_train_input(),
             AppMode::GaTrain => self.handle_ga_train_input(),
             AppMode::DqnVersus | AppMode::GaVersus | AppMode::DqnVsGa => self.handle_match_input(),
+            AppMode::ThemeConfig => self.handle_theme_config_input(),
         }
     }
 
@@ -241,7 +259,7 @@ impl App {
         if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::Left) {
             self.menu_selection = (self.menu_selection + MENU_ENTRY_COUNT - 1) % MENU_ENTRY_COUNT;
         }
-        // Number keys 1..=5 jump straight to a view.
+        // Number keys 1..=6 jump straight to a view.
         let number = self.pressed_menu_number();
         if let Some(n) = number {
             self.navigate(Action::Select(n));
@@ -263,8 +281,44 @@ impl App {
             Some(4)
         } else if is_key_pressed(KeyCode::Key5) {
             Some(5)
+        } else if is_key_pressed(KeyCode::Key6) {
+            Some(6)
         } else {
             None
+        }
+    }
+
+    fn handle_theme_config_input(&mut self) {
+        if is_key_pressed(KeyCode::Escape) {
+            self.navigate(Action::Esc);
+            return;
+        }
+        if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) || is_key_pressed(KeyCode::Left) {
+            if self.theme_selection == 0 {
+                self.theme_selection = 2;
+            } else {
+                self.theme_selection -= 1;
+            }
+        }
+        if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) || is_key_pressed(KeyCode::Right) {
+            self.theme_selection = (self.theme_selection + 1) % 3;
+        }
+        if is_key_pressed(KeyCode::Key1) {
+            self.theme_selection = 0;
+        } else if is_key_pressed(KeyCode::Key2) {
+            self.theme_selection = 1;
+        } else if is_key_pressed(KeyCode::Key3) {
+            self.theme_selection = 2;
+        }
+        if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter) {
+            let selected_theme = match self.theme_selection {
+                0 => crate::theme::GameTheme::Retro,
+                1 => crate::theme::GameTheme::Arcade,
+                _ => crate::theme::GameTheme::Pleasant,
+            };
+            self.active_theme = selected_theme;
+            crate::theme::save_theme(selected_theme).ok();
+            self.navigate(Action::Esc);
         }
     }
 
@@ -365,6 +419,15 @@ impl App {
                 self.mode = AppMode::DqnVsGa;
                 self.match_view = Some(MatchView::Cross(CrossMatchView::new()));
             }
+            Transition::ThemeConfig => {
+                self.mode = AppMode::ThemeConfig;
+                self.match_view = None;
+                self.theme_selection = match self.active_theme {
+                    crate::theme::GameTheme::Retro => 0,
+                    crate::theme::GameTheme::Arcade => 1,
+                    crate::theme::GameTheme::Pleasant => 2,
+                };
+            }
         }
     }
 
@@ -404,6 +467,7 @@ impl App {
                     match_.tick();
                 }
             }
+            AppMode::ThemeConfig => {}
         }
     }
 
@@ -415,6 +479,7 @@ impl App {
             AppMode::DqnTrain => self.draw_dqn_train(),
             AppMode::GaTrain => self.draw_ga_train(),
             AppMode::DqnVersus | AppMode::GaVersus | AppMode::DqnVsGa => self.draw_match(),
+            AppMode::ThemeConfig => self.draw_theme_config(),
         }
     }
 
@@ -441,30 +506,31 @@ impl App {
         } else {
             "3) GA Train  (start fresh)".to_owned()
         };
-        let entries: [String; 5] = [
+        let entries: [String; 6] = [
             dqn_label,
             "2) DQN Versus".to_owned(),
             ga_label,
             "4) GA Versus".to_owned(),
             "5) DQN vs GA".to_owned(),
+            format!("6) Configuración y Temas  [Tema: {}]", self.active_theme.name()),
         ];
 
-        let start_y = h * 0.30;
-        let row_h = h * 0.10;
+        let start_y = h * 0.25;
+        let row_h = h * 0.09;
         for (i, label) in entries.iter().enumerate() {
             let y = start_y + i as f32 * row_h;
             let selected = i == self.menu_selection;
             let color = if selected { YELLOW } else { WHITE };
             self.centered_text(label, center_x, y, 30.0, color);
             if selected {
-                // Selection chevrons either side of the highlighted row.
-                self.centered_text("<", center_x - 260.0, y, 30.0, YELLOW);
-                self.centered_text(">", center_x + 260.0, y, 30.0, YELLOW);
+                let dims = measure_text(label, None, 30, 1.0);
+                self.centered_text("<", center_x - dims.width * 0.5 - 25.0, y, 30.0, YELLOW);
+                self.centered_text(">", center_x + dims.width * 0.5 + 25.0, y, 30.0, YELLOW);
             }
         }
 
         self.centered_text(
-            "[1-5] or [Up/Down]+[Enter] select    [ESC] Quit",
+            "[1-6] or [Up/Down]+[Enter] select    [ESC] Quit",
             center_x,
             h * 0.93,
             18.0,
@@ -502,6 +568,168 @@ impl App {
             match_.draw();
         }
     }
+
+    fn draw_theme_config(&self) {
+        clear_background(BLACK);
+
+        let (w, h) = (screen_width(), screen_height());
+        let center_x = w * 0.5;
+
+        self.centered_text("CONFIGURACIÓN Y TEMAS", center_x, h * 0.08, 40.0, WHITE);
+        self.centered_text(
+            "Personaliza los colores de la serpiente y la manzana",
+            center_x,
+            h * 0.08 + 36.0,
+            18.0,
+            GRAY,
+        );
+
+        let themes = crate::theme::GameTheme::all();
+        let preview_theme = match self.theme_selection {
+            0 => crate::theme::GameTheme::Retro,
+            1 => crate::theme::GameTheme::Arcade,
+            _ => crate::theme::GameTheme::Pleasant,
+        };
+        let preview_colors = preview_theme.colors();
+
+        // Left column: Theme list cards
+        let list_x = w * 0.08;
+        let list_y = h * 0.22;
+        let row_h = h * 0.21;
+
+        for (i, &theme) in themes.iter().enumerate() {
+            let y = list_y + i as f32 * row_h;
+            let is_selected = i == self.theme_selection;
+            let is_active = theme == self.active_theme;
+
+            let card_w = w * 0.44;
+            let card_h = row_h * 0.86;
+
+            let bg_color = if is_selected {
+                Color::new(0.12, 0.15, 0.22, 1.0)
+            } else {
+                Color::new(0.06, 0.06, 0.08, 1.0)
+            };
+            let border_color = if is_selected {
+                YELLOW
+            } else if is_active {
+                Color::new(0.3, 0.8, 0.4, 1.0)
+            } else {
+                Color::new(0.2, 0.2, 0.25, 1.0)
+            };
+
+            draw_rectangle(list_x, y, card_w, card_h, bg_color);
+            draw_rectangle_lines(list_x, y, card_w, card_h, 2.0, border_color);
+
+            // Number + Name
+            let title_color = if is_selected { YELLOW } else { WHITE };
+            let title = format!("{}) Tema {}", i + 1, theme.name());
+            draw_text(&title, list_x + 18.0, y + 32.0, 24.0, title_color);
+
+            // Active badge
+            if is_active {
+                draw_text("[ACTIVO]", list_x + card_w - 95.0, y + 32.0, 18.0, Color::new(0.3, 0.9, 0.4, 1.0));
+            }
+
+            // Description
+            draw_text(theme.description(), list_x + 18.0, y + 62.0, 16.0, GRAY);
+
+            // Swatches inside card
+            let tc = theme.colors();
+            let swatch_y = y + card_h - 26.0;
+            draw_rectangle(list_x + 18.0, swatch_y, 14.0, 14.0, tc.head);
+            draw_text("Cabeza", list_x + 38.0, swatch_y + 11.0, 14.0, tc.head);
+
+            draw_rectangle(list_x + 110.0, swatch_y, 14.0, 14.0, tc.body);
+            draw_text("Cuerpo", list_x + 130.0, swatch_y + 11.0, 14.0, tc.body);
+
+            draw_rectangle(list_x + 200.0, swatch_y, 14.0, 14.0, tc.food);
+            draw_text("Manzana", list_x + 220.0, swatch_y + 11.0, 14.0, tc.food);
+        }
+
+        // Right column: Live preview panel
+        let preview_x = w * 0.56;
+        let preview_y = h * 0.22;
+        let preview_w = w * 0.36;
+        let preview_h = row_h * 2.86;
+
+        draw_rectangle(preview_x, preview_y, preview_w, preview_h, Color::new(0.05, 0.05, 0.07, 1.0));
+        draw_rectangle_lines(preview_x, preview_y, preview_w, preview_h, 2.0, Color::new(0.3, 0.35, 0.45, 1.0));
+
+        let preview_title = format!("VISTA PREVIA: {}", preview_theme.name().to_uppercase());
+        self.centered_text(&preview_title, preview_x + preview_w * 0.5, preview_y + 35.0, 20.0, YELLOW);
+
+        // Draw mini board grid in the preview
+        let grid_size = 12;
+        let cell_size = (preview_w.min(preview_h) * 0.50 / grid_size as f32).floor();
+        let board_w = cell_size * grid_size as f32;
+        let board_h = cell_size * grid_size as f32;
+        let board_x = preview_x + (preview_w - board_w) * 0.5;
+        let board_y = preview_y + 55.0;
+
+        draw_rectangle(board_x, board_y, board_w, board_h, Color::new(0.02, 0.02, 0.03, 1.0));
+        draw_rectangle_lines(board_x, board_y, board_w, board_h, 1.0, Color::new(0.2, 0.2, 0.25, 1.0));
+
+        // Subtle grid lines
+        for g in 1..grid_size {
+            let gx = board_x + g as f32 * cell_size;
+            let gy = board_y + g as f32 * cell_size;
+            draw_line(gx, board_y, gx, board_y + board_h, 1.0, Color::new(0.1, 0.1, 0.12, 1.0));
+            draw_line(board_x, gy, board_x + board_w, gy, 1.0, Color::new(0.1, 0.1, 0.12, 1.0));
+        }
+
+        // Draw food
+        let food_pos = (8, 3);
+        draw_rectangle(
+            board_x + food_pos.0 as f32 * cell_size + 1.0,
+            board_y + food_pos.1 as f32 * cell_size + 1.0,
+            cell_size - 2.0,
+            cell_size - 2.0,
+            preview_colors.food,
+        );
+
+        // Draw snake (head + 4 body segments)
+        let snake_cells = [
+            (5, 5), // head
+            (4, 5), // body 1
+            (3, 5), // body 2
+            (3, 6), // body 3
+            (3, 7), // body 4
+        ];
+        for (idx, &(cx, cy)) in snake_cells.iter().enumerate() {
+            let color = if idx == 0 {
+                preview_colors.head
+            } else {
+                preview_colors.body
+            };
+            draw_rectangle(
+                board_x + cx as f32 * cell_size + 1.0,
+                board_y + cy as f32 * cell_size + 1.0,
+                cell_size - 2.0,
+                cell_size - 2.0,
+                color,
+            );
+        }
+
+        // Explanatory note inside preview
+        let note_y = board_y + board_h + 30.0;
+        self.centered_text(
+            "Se aplica a todos los modos de juego y entrenamiento",
+            preview_x + preview_w * 0.5,
+            note_y,
+            14.0,
+            GRAY,
+        );
+
+        // Footer instructions
+        self.centered_text(
+            "[1-3] o [Arriba/Abajo] Seleccionar    [Enter] Guardar y Salir    [ESC] Cancelar",
+            center_x,
+            h * 0.94,
+            18.0,
+            YELLOW,
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -511,13 +739,14 @@ impl App {
 mod tests {
     use super::{next_mode, Action, AppMode, Transition};
 
-    // The five playable views, in menu order (number keys 1..=5).
-    const ALL_VIEWS: [AppMode; 5] = [
+    // The six playable/configurable views, in menu order (number keys 1..=6).
+    const ALL_VIEWS: [AppMode; 6] = [
         AppMode::DqnTrain,
         AppMode::DqnVersus,
         AppMode::GaTrain,
         AppMode::GaVersus,
         AppMode::DqnVsGa,
+        AppMode::ThemeConfig,
     ];
 
     // --- Menu Esc semantics ---------------------------------------------------
@@ -612,14 +841,22 @@ mod tests {
     }
 
     #[test]
+    fn selecting_theme_config_transitions_to_theme_config() {
+        assert_eq!(
+            next_mode(AppMode::Menu, Action::Select(6), false, false),
+            Transition::ThemeConfig
+        );
+    }
+
+    #[test]
     fn invalid_menu_selection_numbers_are_ignored() {
-        // Only keys 1..=5 map to a view; stray number keys must not move the app.
+        // Only keys 1..=6 map to a view; stray number keys must not move the app.
         assert_eq!(
             next_mode(AppMode::Menu, Action::Select(0), false, false),
             Transition::Stay
         );
         assert_eq!(
-            next_mode(AppMode::Menu, Action::Select(6), false, false),
+            next_mode(AppMode::Menu, Action::Select(7), false, false),
             Transition::Stay
         );
         assert_eq!(

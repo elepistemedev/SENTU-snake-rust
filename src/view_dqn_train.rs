@@ -271,18 +271,20 @@ impl DqnTrainView {
 
         let (tile_size, offset_x, offset_y) = self.grid_layout();
 
+        let theme = crate::theme::load_theme().colors();
+
         // Food
         draw_rectangle(
             offset_x + self.game.food.x as f32 * tile_size,
             offset_y + self.game.food.y as f32 * tile_size,
             tile_size,
             tile_size,
-            RED,
+            theme.food,
         );
 
         // Snake
         for (i, segment) in self.game.body.iter().enumerate() {
-            let color = if i == 0 { GREEN } else { DARKGREEN };
+            let color = if i == 0 { theme.head } else { theme.body };
             draw_rectangle(
                 offset_x + segment.x as f32 * tile_size,
                 offset_y + segment.y as f32 * tile_size,

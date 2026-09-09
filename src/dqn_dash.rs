@@ -145,7 +145,7 @@ fn draw_panel(x: f32, y: f32, w: f32, h: f32, title: &str) {
 /// live snake is drawn (head `(0.3,0.9,0.3)`, body `(0.2,0.7,0.2)`, the
 /// reference's best-snake style) — DQN has no top-N population, so there is NO
 /// ghost/rank loop (proposal success-criterion divergence).
-fn draw_grid(game: &GameDQN, screen_h: f32) {
+fn draw_grid(game: &GameDQN, screen_h: f32, theme: crate::theme::ThemeColors) {
     let grid_size = screen_h - 340.0; // Dynamic size based on screen height
     let x = 20.0;
     let y = 20.0;
@@ -171,15 +171,15 @@ fn draw_grid(game: &GameDQN, screen_h: f32) {
         y + game.food.y as f32 * tile_size + 2.0,
         tile_size - 4.0,
         tile_size - 4.0,
-        WHITE,
+        theme.food,
     );
 
     // The one live snake
     for (i, segment) in game.body.iter().enumerate() {
         let segment_color = if i == 0 {
-            Color::new(0.3, 0.9, 0.3, 1.0) // Head
+            theme.head
         } else {
-            Color::new(0.2, 0.7, 0.2, 1.0) // Body
+            theme.body
         };
         draw_rectangle(
             x + segment.x as f32 * tile_size + 1.0,
@@ -561,14 +561,26 @@ fn draw_stats_panels(
 }
 
 /// Dashboard entry point (design D-3/D-4): starts with `clear_background(BLACK)`
-/// (mirroring `sim.rs::draw_advanced`) and calls the column helpers in the
+/// (mirroring `sim.rs::draw_advanced`)/// Master renderer: clear the frame and draw the four panels in
 /// reference order — left grid + model info, center network, right
 /// stats/charts. Borrows only `&GameDQN`, the view's two scalars and the ring.
 pub fn draw(game: &GameDQN, episode: usize, best_score: usize, history: &EpisodeHistory) {
+    let theme = crate::theme::load_theme().colors();
+    draw_with_theme(game, episode, best_score, history, theme);
+}
+
+/// Variant of [`draw`] accepting an explicit [`ThemeColors`] palette.
+pub fn draw_with_theme(
+    game: &GameDQN,
+    episode: usize,
+    best_score: usize,
+    history: &EpisodeHistory,
+    theme: crate::theme::ThemeColors,
+) {
     let screen_w = screen_width();
     let screen_h = screen_height();
     clear_background(BLACK);
-    draw_grid(game, screen_h);
+    draw_grid(game, screen_h, theme);
     draw_model_info(game, screen_h);
     draw_neural_network(game, screen_h);
     draw_stats_panels(game, episode, best_score, history, screen_w, screen_h);

@@ -9,6 +9,7 @@ pub mod nn;
 pub mod pop;
 pub mod sim;
 pub mod stream;
+pub mod theme;
 pub mod utils;
 pub mod versus;
 pub mod view_cross_match;
