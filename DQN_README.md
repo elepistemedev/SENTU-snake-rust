@@ -17,9 +17,10 @@
 ## 🧠 Componentes DQN
 
 ### 1. Q-Network
-- Red neuronal que estima Q(s,a) para cada acción
-- Arquitectura: 12 → 8 → 4 (igual que GA)
-- Predice el valor esperado de cada acción
+- Red neuronal que estima Q(s,a) para cada acción relativa
+- Arquitectura DQN: 9 → 32 → 3 (estado relativo, 3 acciones relativas)
+- Entrada: 3 rayos relativos (adelante, izquierda, derecha) × [pared, comida, cuerpo]
+- Predice el valor esperado de cada movimiento relativo
 
 ### 2. Target Network
 - Copia de Q-network actualizada cada 100 pasos
@@ -98,14 +99,17 @@ LEARNING_RATE: 0.001
 EPSILON_START: 1.0
 EPSILON_END: 0.01
 EPSILON_DECAY: 0.995
+DQN_INP_LAYER_SIZE: 9
+DQN_HIDDEN_LAYER_SIZE: 32
+DQN_OUTPUT_LAYER_SIZE: 3
 LOSS_EMA_ALPHA: 0.05      // Suavizado de la pérdida TD mostrada
 TARGET_UPDATE_INTERVAL: 100 pasos
 ```
 
 ## 🔄 Flujo de Entrenamiento
 
-1. **Observar** estado actual (visión 4 direcciones)
-2. **Seleccionar** acción (ε-greedy)
+1. **Observar** estado relativo (visión 3 direcciones relativas al heading)
+2. **Seleccionar** acción relativa (recto / girar izquierda / girar derecha) con ε-greedy
 3. **Ejecutar** acción y recibir recompensa
 4. **Almacenar** experiencia (s, a, r, s', done)
 5. **Entrenar** con batch aleatorio del buffer
@@ -153,6 +157,8 @@ Donde:
 - Sin optimizador Adam/RMSprop
 - Red neuronal básica sin capas convolucionales
 - Para producción, considerar usar librerías como `tch-rs` (PyTorch bindings)
+
+> **Compatibilidad de campeones:** los modelos DQN persistidos con la arquitectura anterior (12×8×4) se descartan automáticamente al cargar; el entrenamiento requiere reconstruir el campeón desde cero con la nueva arquitectura 9×32×3.
 
 ## 🚧 Mejoras Futuras
 
