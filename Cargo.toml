@@ -1,0 +1,20 @@
+[package]
+name = "snake"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "snake"
+path = "src/main.rs"
+
+[[bin]]
+name = "snake-dqn"
+path = "src/main_dqn.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+macroquad = "0.4.5"
+rand = "0.8.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

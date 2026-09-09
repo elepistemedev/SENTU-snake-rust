@@ -1,0 +1,111 @@
+# === ENTORNOS VIRTUALES ===
+.env
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+
+# === PYTHON / CIENCIA DE DATOS ===
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+*.ipynb
+*.pkl
+*.joblib
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.csv
+*.tsv
+*.sqlite
+*.db
+*.log
+
+# === NODE / WEB ===
+node_modules/
+dist/
+build/
+.cache/
+.next/
+out/
+*.log
+*.lock
+*.map
+
+# === COMPILADOS / BINARIOS ===
+*.class
+*.exe
+*.dll
+*.so
+*.o
+*.a
+*.out
+target/
+Cargo.lock
+
+# === ASSETS PESADOS / TEMPORALES ===
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.bak
+*.tmp
+
+# === ARCHIVOS DE SISTEMA ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === EDITORES ===
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# === GIT ===
+*.orig
+
+# === UNITY / UNREAL / GAME ENGINES ===
+[Ll]ibrary/
+[Tt]emp/
+[Bb]uild/
+[Bb]uilds/
+Assets/AssetStoreTools*
+*.unitypackage
+*.psd
+*.blend1
+
+# === CONFIGURACIONES PERSONALES O CLAVES ===
+*.key
+*.pem
+*.crt
+*.env.local
+secret.*
+credentials.*
+config.local.*
+best_snake.json
+sim_metadata.json
+
+# Subproyectos grandes (con su propio repo o artifacts entrenados)
+dqn/
+frontend/
+lob/
+damocles/
+models/
+src/trading/
+
+# Tooling
+.serena/memories/
+.serena/cache/
+
+# Large artifacts
+*.pkl
+*.pt
+*.pth
+*.onnx
+ui/*.png
+# Local Pi runtime state
+.atl/
+.pi/
