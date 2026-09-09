@@ -185,8 +185,11 @@ use crate::Point;
 /// Topological connectivity and shape of a snake body segment in the grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentKind {
-    /// Snake head pointing in heading direction.
-    Head(FourDirs),
+    /// Snake head pointing in heading direction, with optional neck connection to body[1].
+    Head {
+        heading: FourDirs,
+        neck_dir: Option<FourDirs>,
+    },
     /// Snake tail pointing away from the connected body.
     Tail(FourDirs),
     /// Straight segment spanning horizontally between left and right edges.
@@ -206,7 +209,29 @@ pub enum SegmentKind {
 /// Classifies the segment connection based on its neighbors in the snake body.
 pub fn classify_segment(body: &[Point], index: usize, heading: FourDirs) -> SegmentKind {
     if index == 0 {
-        return SegmentKind::Head(heading);
+        let neck_dir = if body.len() > 1 {
+            let curr = body[0];
+            let next = body[1];
+            let dx = next.x - curr.x;
+            let dy = next.y - curr.y;
+            if dx > 0 {
+                Some(FourDirs::Right)
+            } else if dx < 0 {
+                Some(FourDirs::Left)
+            } else if dy > 0 {
+                Some(FourDirs::Bottom)
+            } else if dy < 0 {
+                Some(FourDirs::Top)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        return SegmentKind::Head {
+            heading,
+            neck_dir,
+        };
     }
     let curr = body[index];
     let prev = body[index - 1];
@@ -277,42 +302,45 @@ pub fn draw_snake_segment(
     let contour_w = 2.0;
 
     match kind {
-        SegmentKind::Head(dir) => {
+        SegmentKind::Head { heading, neck_dir } => {
             let size = (tile_size - 2.0) * (1.0 + head_scale);
             let half = size * 0.5;
             let hx = cx - half;
             let hy = cy - half;
 
-            // Connect neck flush to the opposite edge
             let neck_w = tile_size * 0.74;
             let half_neck = neck_w * 0.5;
-            match dir {
-                FourDirs::Right => {
-                    draw_rectangle(x, cy - half_neck, cx - x, neck_w, color);
-                    if let Some(ol) = outline {
-                        draw_line(x, cy - half_neck, cx, cy - half_neck, contour_w, ol);
-                        draw_line(x, cy + half_neck, cx, cy + half_neck, contour_w, ol);
+
+            // Connect neck flush to the edge where body[1] is located (if any)
+            if let Some(nd) = neck_dir {
+                match nd {
+                    FourDirs::Left => {
+                        draw_rectangle(x, cy - half_neck, cx - x, neck_w, color);
+                        if let Some(ol) = outline {
+                            draw_line(x, cy - half_neck, cx, cy - half_neck, contour_w, ol);
+                            draw_line(x, cy + half_neck, cx, cy + half_neck, contour_w, ol);
+                        }
                     }
-                }
-                FourDirs::Left => {
-                    draw_rectangle(cx, cy - half_neck, x + tile_size - cx, neck_w, color);
-                    if let Some(ol) = outline {
-                        draw_line(cx, cy - half_neck, x + tile_size, cy - half_neck, contour_w, ol);
-                        draw_line(cx, cy + half_neck, x + tile_size, cy + half_neck, contour_w, ol);
+                    FourDirs::Right => {
+                        draw_rectangle(cx, cy - half_neck, x + tile_size - cx, neck_w, color);
+                        if let Some(ol) = outline {
+                            draw_line(cx, cy - half_neck, x + tile_size, cy - half_neck, contour_w, ol);
+                            draw_line(cx, cy + half_neck, x + tile_size, cy + half_neck, contour_w, ol);
+                        }
                     }
-                }
-                FourDirs::Bottom => {
-                    draw_rectangle(cx - half_neck, y, neck_w, cy - y, color);
-                    if let Some(ol) = outline {
-                        draw_line(cx - half_neck, y, cx - half_neck, cy, contour_w, ol);
-                        draw_line(cx + half_neck, y, cx + half_neck, cy, contour_w, ol);
+                    FourDirs::Top => {
+                        draw_rectangle(cx - half_neck, y, neck_w, cy - y, color);
+                        if let Some(ol) = outline {
+                            draw_line(cx - half_neck, y, cx - half_neck, cy, contour_w, ol);
+                            draw_line(cx + half_neck, y, cx + half_neck, cy, contour_w, ol);
+                        }
                     }
-                }
-                FourDirs::Top => {
-                    draw_rectangle(cx - half_neck, cy, neck_w, y + tile_size - cy, color);
-                    if let Some(ol) = outline {
-                        draw_line(cx - half_neck, cy, cx - half_neck, y + tile_size, contour_w, ol);
-                        draw_line(cx + half_neck, cy, cx + half_neck, y + tile_size, contour_w, ol);
+                    FourDirs::Bottom => {
+                        draw_rectangle(cx - half_neck, cy, neck_w, y + tile_size - cy, color);
+                        if let Some(ol) = outline {
+                            draw_line(cx - half_neck, cy, cx - half_neck, y + tile_size, contour_w, ol);
+                            draw_line(cx + half_neck, cy, cx + half_neck, y + tile_size, contour_w, ol);
+                        }
                     }
                 }
             }
@@ -323,8 +351,18 @@ pub fn draw_snake_segment(
             }
             draw_circle(cx, cy, half, color);
 
+            // Re-fill neck junction to seamlessly weld circle and neck without inner contour seam
+            if let Some(nd) = neck_dir {
+                match nd {
+                    FourDirs::Left => draw_rectangle(x + 1.0, cy - half_neck + 1.0, cx - x, neck_w - 2.0, color),
+                    FourDirs::Right => draw_rectangle(cx, cy - half_neck + 1.0, x + tile_size - cx - 1.0, neck_w - 2.0, color),
+                    FourDirs::Top => draw_rectangle(cx - half_neck + 1.0, y + 1.0, neck_w - 2.0, cy - y, color),
+                    FourDirs::Bottom => draw_rectangle(cx - half_neck + 1.0, cy, neck_w - 2.0, y + tile_size - cy - 1.0, color),
+                }
+            }
+
             // Directional eyes
-            let (e1, e2) = compute_eye_offsets(dir, size);
+            let (e1, e2) = compute_eye_offsets(heading, size);
             for eye in [e1, e2] {
                 draw_circle(hx + eye.center_x, hy + eye.center_y, eye.radius, WHITE);
                 draw_circle(hx + eye.pupil_x, hy + eye.pupil_y, eye.pupil_radius, BLACK);
@@ -516,7 +554,10 @@ pub fn draw_snake_head(
         x,
         y,
         tile_size,
-        SegmentKind::Head(dir),
+        SegmentKind::Head {
+            heading: dir,
+            neck_dir: None,
+        },
         theme,
         color,
         0.0,
@@ -639,7 +680,20 @@ mod tests {
             Point::new(8, 7),
         ];
 
-        assert_eq!(classify_segment(&body, 0, FourDirs::Right), SegmentKind::Head(FourDirs::Right));
+        assert_eq!(
+            classify_segment(&body, 0, FourDirs::Right),
+            SegmentKind::Head {
+                heading: FourDirs::Right,
+                neck_dir: Some(FourDirs::Left),
+            }
+        );
+        assert_eq!(
+            classify_segment(&[Point::new(10, 5)], 0, FourDirs::Right),
+            SegmentKind::Head {
+                heading: FourDirs::Right,
+                neck_dir: None,
+            }
+        );
         assert_eq!(classify_segment(&body, 1, FourDirs::Right), SegmentKind::StraightHorizontal);
         assert_eq!(classify_segment(&body, 2, FourDirs::Right), SegmentKind::CornerBottomRight);
         assert_eq!(classify_segment(&body, 3, FourDirs::Right), SegmentKind::StraightVertical);

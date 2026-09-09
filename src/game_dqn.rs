@@ -83,37 +83,44 @@ impl GameDQN {
         let mut reward;
         let mut done = false;
         
-        // Check collision
-        if self.is_wall(self.head) || self.is_snake_body(self.head) {
+        // Check collision with wall
+        if self.is_wall(self.head) {
             reward = -1.0;
             done = true;
             self.is_complete = true;
         } else if self.head == self.food {
-            // Ate food
+            // Ate food: body grows by retaining previous tail
+            self.body.insert(0, self.head);
             reward = 1.0;
             self.score += 1;
             self.swallow.push_eating();
-            self.body.push(self.head.clone());
+            self.swallow.advance(self.body.len());
             self.food = self.get_random_empty_pos();
             self.prev_distance = Self::calculate_distance(&self.head, &self.food);
             self.steps_without_food = 0;
-        } else {
-            // Normal move — symmetric distance shaping
-            let new_distance = Self::calculate_distance(&self.head, &self.food);
-            if new_distance < self.prev_distance {
-                reward = 0.1; // Reward for getting closer
-            } else {
-                reward = -0.1; // Penalty for getting farther
+            if self.is_snake_body(self.head) {
+                reward = -1.0;
+                done = true;
+                self.is_complete = true;
             }
-            self.prev_distance = new_distance;
+        } else {
+            // Normal move: insert new head at front, remove old tail
+            self.body.insert(0, self.head);
+            self.body.pop();
             self.swallow.advance(self.body.len());
-            
-            // Update body
-            let mut prev_pos = self.head.clone();
-            for p in self.body.iter_mut() {
-                let temp = *p;
-                *p = prev_pos;
-                prev_pos = temp;
+
+            if self.is_snake_body(self.head) {
+                reward = -1.0;
+                done = true;
+                self.is_complete = true;
+            } else {
+                let new_distance = Self::calculate_distance(&self.head, &self.food);
+                if new_distance < self.prev_distance {
+                    reward = 0.1; // Reward for getting closer
+                } else {
+                    reward = -0.1; // Penalty for getting farther
+                }
+                self.prev_distance = new_distance;
             }
         }
         
@@ -314,6 +321,52 @@ break;
         if game.score > prev_score {
             assert!(game.swallow.head_scale() > 0.0, "Head chew scale must be active");
             assert!(game.swallow.bulge_at(0) > 0.0, "Bulge must start at index 0");
+        }
+    }
+
+    #[test]
+    fn body_segments_stay_contiguous_and_ordered_after_eating() {
+        let mut game = GameDQN::new();
+        // Give snake several food points to trigger eating
+        for _ in 0..100 {
+            // Spawn food right in front to force eating often
+            if rand::random::<f32>() < 0.3 {
+                let forward = game.dir.value();
+                let target = Point::new(game.head.x + forward.0, game.head.y + forward.1);
+                if !game.is_wall(target) {
+                    game.food = target;
+                }
+            }
+            let (_, done) = game.step();
+            if done {
+                game.reset();
+                continue;
+            }
+
+            // Invariant 1: body[0] is always head
+            assert_eq!(game.body[0], game.head, "body[0] must always equal game.head");
+
+            // Invariant 2: body length is score + 1
+            assert_eq!(
+                game.body.len(),
+                game.score + 1,
+                "body length must match score + 1"
+            );
+
+            // Invariant 3: every adjacent segment pair has Manhattan distance exactly 1
+            for i in 0..game.body.len() - 1 {
+                let dx = (game.body[i].x - game.body[i + 1].x).abs();
+                let dy = (game.body[i].y - game.body[i + 1].y).abs();
+                assert_eq!(
+                    dx + dy,
+                    1,
+                    "Segment {} ({:?}) and {} ({:?}) must be adjacent (Manhattan distance 1)",
+                    i,
+                    game.body[i],
+                    i + 1,
+                    game.body[i + 1]
+                );
+            }
         }
     }
 }
