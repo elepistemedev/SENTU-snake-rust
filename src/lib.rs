@@ -1,3 +1,4 @@
+pub mod app;
 pub mod champion_store;
 pub mod configs;
 pub mod dqn;
