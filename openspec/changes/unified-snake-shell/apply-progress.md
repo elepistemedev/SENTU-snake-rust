@@ -1,6 +1,69 @@
-# Apply Progress — unified-snake-shell (Slices 1–2 of 5)
+# Apply Progress — unified-snake-shell (Slices 1–3 of 5)
 
-Slice 2: versus arena (T1.2, T1.3). Delivery: chained slices on local branch `feature/dqn-vs-genetico` (no remote/PR). Not committed. Slice 1 record preserved verbatim below.
+Slice 3: DQN trainer view + champion persistence + DQN internal versus (T2.1, T2.2, T2.3, T4.1). Delivery: chained slices on local branch `feature/dqn-vs-genetico` (no remote/PR). Not committed. Slice 1–2 records preserved verbatim below.
+
+## Slice 3 — DQN trainer view + champion + DQN versus (completed)
+
+## Completed tasks (persisted checkboxes updated)
+
+| Task | Summary | Checkbox |
+| --- | --- | --- |
+| T2.2 | Pure record seam `view_dqn_train::on_episode_end(score, best_score, &Net) -> (usize, Option<Net>)`: returns `(new_best, Some(q_network.clone()))` exactly when `score > best`; tie/lower keep best and return `None` (champion never replaced by an equal/worse run). **[RED-first]** tests pin exact snapshot on record and `None` on tie/lower. | `[x]` in tasks.md |
+| T2.1 | `src/view_dqn_train.rs` (new): `DqnTrainView` owns a `GameDQN`; `tick()` = one `step()` per frame + episode/best bookkeeping via `on_episode_end` + same-tick reset; HUD (Episode/Score/Best/Epsilon, left-anchored as today) + grid sized/centered from `screen_width()/height()` (no hardcoded 800×600 offsets; `grid_layout()` reproduces the old family at 800×600). Passive/resumable per AD-3 (shell pauses by not ticking). Accessors: `score/episode/best_score/epsilon/live_net/champion`. `fresh_agent()` for the shell's `R` key (resets agent+bookkeeping, retains champion). | `[x]` in tasks.md |
+| T2.3 | Champion persistence wired: `end_episode` saves the champion via `champion_store::save(self.champion_path, …)` on every record; `new()` loads an existing champion via `champion_store::load(DQN_CHAMPION_FILE)` (missing/corrupt → `None`, never panics — the fs layer is already covered by slice-1 store tests). Constant `DQN_CHAMPION_FILE = "dqn_champion.json"`. Private `at_path` constructor keeps the real file out of tests. | `[x]` in tasks.md |
+| T4.1 | `src/view_dqn_versus.rs` (new): pure seam `plan_dqn_versus(Option<&Net>, Option<&Net>) -> DqnVersusPlayers { MissingChampion | ChampionVsLive{…} | ChampionVsFresh{…} }` — **[RED-first]** which nets are selected given trainer/champion presence. `DqnVersusView::new(champion: Option<Net>, live: Option<Net>)`: missing champion → message state (`CHAMPION_MISSING_MESSAGE`, exposed via `message()`); live `None` → fresh greedy agent (`DQNAgent::new().q_network`) labeled "CURRENT (fresh)". DQN `VsFlavor` "CHAMPION"/"CURRENT", `record: None`, "CHAMPION WINS!/CURRENT WINS!/TIE!", back label "[ESC] Menu". Drives `VersusMatch` per frame (`tick`); `draw` via the match (or the message notice); `is_finished()/winner()` exposed. No input handling (shell owns Esc, slice 5). | `[x]` in tasks.md |
+
+## Files changed (slice 3)
+
+- `src/view_dqn_train.rs` — new (`DqnTrainView` + `on_episode_end` + 6 unit tests)
+- `src/view_dqn_versus.rs` — new (`DqnVersusView` + `plan_dqn_versus`/`DqnVersusPlayers` + 6 unit tests)
+- `src/lib.rs` — registered `pub mod view_dqn_train;` + `pub mod view_dqn_versus;`
+- `openspec/changes/unified-snake-shell/tasks.md` — checked T2.1, T2.2, T2.3, T4.1
+- `openspec/changes/unified-snake-shell/apply-progress.md` — this file (merged)
+
+Not modified in this slice (as required): `src/main_dqn.rs` (kept compiling; deleted in wiring slice 5), `Cargo.toml`, `src/main.rs`, `src/game_dqn.rs`, `src/dqn.rs`, `src/nn.rs`, `src/game.rs`, `src/versus.rs`, `src/viz_vs.rs`, `src/champion_store.rs`, any GA sources. No pixel tests.
+
+## TDD Cycle Evidence
+
+Runner: `cargo test`. Baseline: `cargo test` → 15 passed (slices 1–2), both bins 0.
+
+| Task | RED | GREEN | Command |
+| --- | --- | --- | --- |
+| T2.2 | Wrote 3 tests in `view_dqn_train.rs` referencing undefined `on_episode_end` → compile failed E0425 (module registered in lib.rs so the seam was reachable) | Implemented `on_episode_end` (+ whole `DqnTrainView`) → `cargo test view_dqn_train` green | `cargo test` |
+| T4.1 | Wrote 3 tests in `view_dqn_versus.rs` referencing undefined `plan_dqn_versus`/`DqnVersusPlayers` → compile failed E0425/E0433 (9 errors across both seams in one run) | Implemented planner + view → suite green | `cargo test` |
+| T2.1/T2.3 (behavior pins) | First green run FAILED 2 tests: (a) `construction_loads_champion…` compared serde round trip with bit-exact weights — f64 JSON round trips differ at the last ulp (slice-1 lesson re-learned); (b) `bounded_ticks…` asserted `champion().is_none()` after 250 random ticks, but a random agent DID score (score 1 → record → champion set + saved to the real `dqn_champion.json`, racing the round-trip test on that shared file) | Fixes: serde comparisons use `nets_approx_eq` (1e-9); tests bind the champion file to private per-test paths via `DqnTrainView::at_path` (temp files removed after each); dropped the false no-record assumption (assert episode ≥ 1 + board reset only). 27/27 green | `cargo test` |
+| T2.1/T4.1 (triangulate) | Random-brain match/finish tests (bounded 10 000-tick budget) and the record/epsilon behavior tests could flake on OS-entropy brains | Ran full suite 5× consecutively → 27/27 every run; no flake | `cargo test` ×5 |
+
+Final suite: `cargo test` → 27 passed / 0 failed (lib: 5 champion_store + 3 viz_vs + 7 versus + 6 view_dqn_train + 6 view_dqn_versus; both bins 0 tests). `cargo build` clean, 0 warnings. Pure seams (`on_episode_end`, `plan_dqn_versus`) are macroquad-free; `Net` cloning only.
+
+## Deviations from design
+
+- Naming/state shape: T2.1's "Esc → pause (kept alive)" and "R" are not handled *inside* the view. Per the slice instruction ("Esc handled by the shell later — expose a paused/resumable struct") `DqnTrainView` is a passive resource: pause = the App stops calling `tick()` and keeps the struct (AD-3); `fresh_agent()` is the public seam the shell's `R` handler will call in slice 5. No `paused` bool field — the App's ownership already encodes pause.
+- Champion file injection: `DqnTrainView::new()` hardcodes `dqn_champion.json` exactly as specced; a private `at_path(&'static str)` constructor exists purely so tests never read/write the real champion file (they use per-test temp files). No production behavior change.
+- `DqnVersusPlayers` carries owned `Net` clones (deterministic planner) and `ChampionVsFresh { champion }` marks the fresh-fallback branch; the actual fallback net (`DQNAgent::new().q_network`) is allocated by `DqnVersusView::new` after planning, keeping the pure seam free of randomness.
+- Extra accessor `live_is_fresh()` exposes the "CURRENT (fresh)" vs "CURRENT" labeling decision for tests and future shell HUD use.
+
+## Remaining tasks (out of this slice — exact unchecked lines)
+
+Slice 3 is complete; remaining implementation tasks belong to slices 4–5 and stay unchecked:
+
+- [ ] T3.1 `src/view_ga_train.rs` `GaTrainView` around `Simulation` seam: pacing (slow batch/frame + sleep, fast ≤50/frame), keys keep meaning; DQN-style single-grid + HUD (generation, gen max, best ever, elapsed, champ score/fitness/steps) default; `Tab` toggles advanced VizAdvanced dashboard; routes sim internal VS sub-state to the versus renderer (GA flavor).
+- [ ] T3.2 `src/pop.rs`: make best-net loader `pub` (no behavior change).
+- [ ] T4.2 `src/view_ga_versus.rs`: GA champions from `sim_metadata.json` best/second-best (fallback `best_snake.json`), GA-default flavor incl. record; both missing → message.
+- [ ] T4.3 `src/view_cross_match.rs`: load `best_snake.json` + `dqn_champion.json`; flavor "GA"/"DQN", `record: None`; per-side missing-file messages (spec scenario).
+- [ ] T5.1–T5.4 (unchanged; see tasks.md).
+
+## Workload / PR boundary
+
+Slice 3 is a clean, independently compilable/testable unit: ~700 added lines across 2 new source files + 2-line `lib.rs` registration + docs churn; both bins still compile unchanged (main_dqn.rs untouched until slice 5). Next PR slice boundary candidates: GA train + GA/cross versus views (T3.1–T3.2, T4.2–T4.3) then the shell/wiring (T5.1–T5.4).
+
+## Structured status consumed
+
+Authoritative native status (change `unified-snake-shell`): `applyState: ready`, `artifactStore: openspec`, `actionContext.mode: repo-local`, allowed edit roots `[<repo-root>]`, no warnings. All edited paths inside the authoritative workspace and the slice's allowed edit surfaces (`src/view_dqn_train.rs`, `src/view_dqn_versus.rs`, `src/lib.rs`, `tasks.md`, `apply-progress.md`). Note: the pi-lens LSP watcher repeatedly reported a stale "file not found" for `view_dqn_versus.rs` this turn although the file exists on disk and compiles — cargo (authoritative) is green 5×.
+
+---
+
+
 
 ## Slice 2 — Versus arena (completed)
 

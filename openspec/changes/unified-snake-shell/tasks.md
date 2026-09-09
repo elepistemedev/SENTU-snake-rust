@@ -16,9 +16,9 @@ STRICT TDD ACTIVE: test runner `cargo test`. Tasks marked **[RED-first]** start 
 
 ## Phase 2 — DQN trainer + champion
 
-- [ ] T2.1 Move DQN train loop out of `src/main_dqn.rs` into `src/view_dqn_train.rs` (`DqnTrainView`): per-frame `GameDQN::step()`, episode/best bookkeeping, HUD (Episode/Score/Best/Epsilon) + grid centered via `screen_width()`; `Esc` → pause (kept alive); `R` → fresh agent.
-- [ ] T2.2 Episode-end record logic as pure fn: `on_episode_end(score, best, q_network) -> (best, Option<Net>)`. **[RED-first]** test: snapshot replaced exactly on record, not on tie/lower.
-- [ ] T2.3 Wire champion persistence: on record, `champion_store::save("dqn_champion.json", champion)`; on view construction, load existing champion (corrupt/missing → none).
+- [x] T2.1 Move DQN train loop out of `src/main_dqn.rs` into `src/view_dqn_train.rs` (`DqnTrainView`): per-frame `GameDQN::step()`, episode/best bookkeeping, HUD (Episode/Score/Best/Epsilon) + grid centered via `screen_width()`; `Esc` → pause (kept alive); `R` → fresh agent.
+- [x] T2.2 Episode-end record logic as pure fn: `on_episode_end(score, best, q_network) -> (best, Option<Net>)`. **[RED-first]** test: snapshot replaced exactly on record, not on tie/lower.
+- [x] T2.3 Wire champion persistence: on record, `champion_store::save("dqn_champion.json", champion)`; on view construction, load existing champion (corrupt/missing → none).
 
 ## Phase 3 — GA trainer view (DQN-style)
 
@@ -27,7 +27,7 @@ STRICT TDD ACTIVE: test runner `cargo test`. Tasks marked **[RED-first]** start 
 
 ## Phase 4 — Versus views (DQN internal / GA internal / cross)
 
-- [ ] T4.1 `src/view_dqn_versus.rs`: champion Net (memory/file) vs live policy Net (paused trainer q_network, else fresh greedy agent), flavor "CHAMPION"/"CURRENT", `record: None`; missing champion → message + Esc. **[RED-first]** pure part: which Nets are selected given trainer/champion presence.
+- [x] T4.1 `src/view_dqn_versus.rs`: champion Net (memory/file) vs live policy Net (paused trainer q_network, else fresh greedy agent), flavor "CHAMPION"/"CURRENT", `record: None`; missing champion → message + Esc. **[RED-first]** pure part: which Nets are selected given trainer/champion presence.
 - [ ] T4.2 `src/view_ga_versus.rs`: GA champions from `sim_metadata.json` best/second-best (fallback `best_snake.json`), GA-default flavor incl. record; both missing → message.
 - [ ] T4.3 `src/view_cross_match.rs`: load `best_snake.json` + `dqn_champion.json`; flavor "GA"/"DQN", `record: None`; per-side missing-file messages (spec scenario).
 
