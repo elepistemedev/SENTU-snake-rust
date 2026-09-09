@@ -330,6 +330,9 @@ impl VizAdvanced {
             title.to_string()
         };
         draw_text(&chart_title, x + 20.0, y + 30.0, TITLE_SIZE, ACCENT_COLOR);
+
+        let count_text = format!("{}/{} GENS", data.len(), self.max_history_size);
+        draw_text(&count_text, x + w - 120.0, y + 28.0, 16.0, TEXT_COLOR);
         
         if data.is_empty() {
             return;
@@ -341,13 +344,14 @@ impl VizAdvanced {
         let chart_h = h - 70.0;
 
         let scale = max_val.max(1.0);
-        let step = chart_w / data.len().max(1) as f32;
+        let step = chart_w / (self.max_history_size as f32).max(1.0);
+        let bar_w = (step - 1.0).max(2.0);
 
         for (i, &val) in data.iter().enumerate() {
             let bar_h = (val / scale) * chart_h;
             let bar_x = chart_x + i as f32 * step;
             let bar_y = chart_y + chart_h - bar_h;
-            draw_rectangle(bar_x, bar_y, step.max(4.0) - 1.0, bar_h, color);
+            draw_rectangle(bar_x, bar_y, bar_w, bar_h, color);
         }
     }
 
