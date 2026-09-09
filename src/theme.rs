@@ -20,6 +20,8 @@ pub enum GameTheme {
     Arcade,
     /// Soft, harmonious modern palette: mint emerald head, sage teal body, warm coral apple.
     Pleasant,
+    /// Natural illustrated style: meadow green with dark outline, vivid red apple.
+    Meadow,
 }
 
 /// Resolved color palette for rendering.
@@ -28,6 +30,7 @@ pub struct ThemeColors {
     pub head: Color,
     pub body: Color,
     pub food: Color,
+    pub outline: Option<Color>,
 }
 
 impl GameTheme {
@@ -37,6 +40,7 @@ impl GameTheme {
             GameTheme::Retro => "Retro",
             GameTheme::Arcade => "Arcade",
             GameTheme::Pleasant => "Agradable",
+            GameTheme::Meadow => "Pradera",
         }
     }
 
@@ -46,6 +50,7 @@ impl GameTheme {
             GameTheme::Retro => "Verde clásico + Manzana blanca",
             GameTheme::Arcade => "Cian neón + Manzana rosa brillante",
             GameTheme::Pleasant => "Menta suave + Manzana coral cálido",
+            GameTheme::Meadow => "Verde natural con contorno + Manzana roja",
         }
     }
 
@@ -56,23 +61,32 @@ impl GameTheme {
                 head: Color::new(0.3, 0.9, 0.3, 1.0),
                 body: Color::new(0.2, 0.7, 0.2, 1.0),
                 food: Color::new(1.0, 1.0, 1.0, 1.0),
+                outline: None,
             },
             GameTheme::Arcade => ThemeColors {
                 head: Color::new(0.0, 0.95, 1.0, 1.0),
                 body: Color::new(0.1, 0.5, 0.9, 1.0),
                 food: Color::new(1.0, 0.1, 0.6, 1.0),
+                outline: None,
             },
             GameTheme::Pleasant => ThemeColors {
                 head: Color::new(0.28, 0.82, 0.65, 1.0),
                 body: Color::new(0.20, 0.65, 0.55, 1.0),
                 food: Color::new(0.98, 0.42, 0.42, 1.0),
+                outline: None,
+            },
+            GameTheme::Meadow => ThemeColors {
+                head: Color::new(0.32, 0.65, 0.40, 1.0),
+                body: Color::new(0.35, 0.68, 0.42, 1.0),
+                food: Color::new(0.88, 0.22, 0.28, 1.0),
+                outline: Some(Color::new(0.18, 0.41, 0.24, 1.0)),
             },
         }
     }
 
     /// All themes in order.
-    pub fn all() -> [GameTheme; 3] {
-        [GameTheme::Retro, GameTheme::Arcade, GameTheme::Pleasant]
+    pub fn all() -> [GameTheme; 4] {
+        [GameTheme::Retro, GameTheme::Arcade, GameTheme::Pleasant, GameTheme::Meadow]
     }
 }
 
@@ -132,13 +146,19 @@ mod tests {
 
     #[test]
     fn theme_colors_are_unique_per_theme() {
+        assert_eq!(GameTheme::all().len(), 4);
         let retro = GameTheme::Retro.colors();
         let arcade = GameTheme::Arcade.colors();
         let pleasant = GameTheme::Pleasant.colors();
+        let meadow = GameTheme::Meadow.colors();
 
         assert_ne!(retro, arcade);
         assert_ne!(retro, pleasant);
+        assert_ne!(retro, meadow);
         assert_ne!(arcade, pleasant);
+        assert_ne!(arcade, meadow);
+        assert_ne!(pleasant, meadow);
+        assert!(meadow.outline.is_some());
     }
 
     #[test]
