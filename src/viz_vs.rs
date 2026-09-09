@@ -193,12 +193,13 @@ impl VizVS {
         }
 
         // Food
+        let theme_food = crate::theme::load_theme().colors().food;
         draw_rectangle(
             x + game.food.x as f32 * tile_size + 2.0,
             y + game.food.y as f32 * tile_size + 2.0,
             tile_size - 4.0,
             tile_size - 4.0,
-            WHITE,
+            theme_food,
         );
 
         // Snake

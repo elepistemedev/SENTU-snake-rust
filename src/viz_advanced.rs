@@ -113,6 +113,8 @@ impl VizAdvanced {
             return;
         }
 
+        let theme = crate::theme::load_theme().colors();
+
         // Food
         let best_game = games[0];
         draw_rectangle(
@@ -120,18 +122,18 @@ impl VizAdvanced {
             y + best_game.food.y as f32 * tile_size + 2.0,
             tile_size - 4.0,
             tile_size - 4.0,
-            WHITE,
+            theme.food,
         );
 
         // Draw all snakes (reverse order so best is on top)
         for (rank, game) in games.iter().enumerate().rev() {
             for (i, segment) in game.body.iter().enumerate() {
                 let segment_color = if rank == 0 {
-                    // Best snake: bright green
+                    // Best snake uses active theme
                     if i == 0 {
-                        Color::new(0.3, 0.9, 0.3, 1.0) // Head
+                        theme.head
                     } else {
-                        Color::new(0.2, 0.7, 0.2, 1.0) // Body
+                        theme.body
                     }
                 } else {
                     // Others: gray ghosts with decreasing opacity
