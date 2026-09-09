@@ -136,10 +136,9 @@ impl DQNAgent {
         }
     }
 
-    fn update_weights(&mut self, state: &Vec<f64>, action: usize, error: f64) {
+    fn update_weights(&mut self, _state: &Vec<f64>, action: usize, error: f64) {
         // Simplified weight update (approximation of backprop)
-        let outputs = self.q_network.predict(state);
-        
+
         // Update output layer weights for the selected action
         if let Some(layer) = self.q_network.layers.last_mut() {
             if action < layer.nodes.len() {

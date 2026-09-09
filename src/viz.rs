@@ -38,6 +38,12 @@ struct Colors {
     opacity: f32,
 }
 
+impl Default for Viz {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Viz {
     pub fn new() -> Self {
         Self {
@@ -113,7 +119,7 @@ impl Viz {
         let mut pos_x = 0;
         let mut pos_y = 0;
 
-        if self.games.len() <= 0 || !self.is_show_viz {
+        if self.games.is_empty() || !self.is_show_viz {
             return;
         }
 
@@ -123,7 +129,7 @@ impl Viz {
         best_games.reverse();
 
         for index in 0..(VIZ_GRID_H * VIZ_GRID_W) {
-            if !grid_zero.contains(&(index as i32)) {
+            if !grid_zero.contains(&{ index }) {
                 let game = &best_games[index as usize];
                 self.draw_game(game, pos_x, pos_y, 1.0);
             }
@@ -148,7 +154,7 @@ impl Viz {
         let w = (screen_width() - padding * 2.0) * 0.7;
         let h = (screen_height() - padding * 2.0) * 0.99;
         let sq = w.min(h);
-        let tile_size = ((sq / 4.0) / GRID_W as f32) * scale as f32;
+        let tile_size = ((sq / 4.0) / GRID_W as f32) * scale;
 
         for x in 0..=GRID_W {
             for y in 0..=GRID_H {
@@ -447,16 +453,14 @@ impl Viz {
             _ => FourDirs::Top,
         };
 
-        if game.dir.is_horizontal() {
-            if dir.is_horizontal() && game.dir != dir {
+        if game.dir.is_horizontal()
+            && dir.is_horizontal() && game.dir != dir {
                 dir = game.dir;
             }
-        }
-        if game.dir.is_vertical() {
-            if dir.is_vertical() && game.dir != dir {
+        if game.dir.is_vertical()
+            && dir.is_vertical() && game.dir != dir {
                 dir = game.dir;
             }
-        }
 
         let mut output_colors = vec![
             color_disabled,

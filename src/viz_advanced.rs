@@ -139,7 +139,7 @@ impl VizAdvanced {
         }
     }
 
-    fn draw_neural_network(&self, game: &crate::game::Game, screen_w: f32, screen_h: f32) {
+    fn draw_neural_network(&self, game: &crate::game::Game, _screen_w: f32, screen_h: f32) {
         let left_col_width = screen_h - 320.0;
         let panel_w = 550.0;
         let panel_h = screen_h - 40.0;
