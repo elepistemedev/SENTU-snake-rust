@@ -206,28 +206,29 @@ impl VizVS {
         for (i, segment) in game.body.iter().enumerate() {
             let seg_x = x + segment.x as f32 * tile_size;
             let seg_y = y + segment.y as f32 * tile_size;
-            if i == 0 {
-                crate::render_snake::draw_snake_head(
-                    seg_x,
-                    seg_y,
-                    tile_size,
-                    game.dir,
-                    theme,
-                    color,
-                    game.swallow.head_scale(),
-                );
+            let seg_color = if i == 0 {
+                color
             } else {
-                let seg_color = Color::new(color.r * 0.7, color.g * 0.7, color.b * 0.7, 1.0);
-                let bulge = game.swallow.bulge_at(i);
-                crate::render_snake::draw_snake_body(
-                    seg_x,
-                    seg_y,
-                    tile_size,
-                    theme,
-                    seg_color,
-                    bulge,
-                );
-            }
+                Color::new(color.r * 0.7, color.g * 0.7, color.b * 0.7, 1.0)
+            };
+            let bulge = game.swallow.bulge_at(i);
+            let head_scale = if i == 0 {
+                game.swallow.head_scale()
+            } else {
+                0.0
+            };
+            crate::render_snake::draw_connected_segment(
+                &game.body,
+                i,
+                game.dir,
+                seg_x,
+                seg_y,
+                tile_size,
+                theme,
+                seg_color,
+                bulge,
+                head_scale,
+            );
         }
 
         // Status indicator
