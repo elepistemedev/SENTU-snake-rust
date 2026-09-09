@@ -182,15 +182,45 @@ impl DQNAgent {
         }
     }
 
-    fn update_weights(&mut self, _state: &Vec<f64>, action: usize, error: f64) {
-        // Simplified weight update (approximation of backprop)
+    fn update_weights(&mut self, state: &[f64], action: usize, error: f64) {
+        // Full forward pass to get activations at each layer
+        let activations = self.q_network.predict(&state.to_vec());
+        // activations[0] = input (9), [1] = hidden (32), [2] = output (3)
 
-        // Update output layer weights for the selected action
-        if let Some(layer) = self.q_network.layers.last_mut() {
-            if action < layer.nodes.len() {
-                for weight in layer.nodes[action].iter_mut() {
-                    *weight += LEARNING_RATE * error;
-                }
+        let output_layer_idx = self.q_network.layers.len() - 1;
+
+        // --- Output layer: gradient for the selected action ---
+        let out_val = activations[output_layer_idx + 1][action];
+        let sig_deriv_out = out_val * (1.0 - out_val);
+        let delta_out = error * sig_deriv_out;
+
+        let hidden_out = &activations[output_layer_idx]; // hidden activations
+
+        // Snapshot output weights before mutation (needed for hidden backprop)
+        let out_weights_snapshot: Vec<f64> = self.q_network.layers[output_layer_idx]
+            .nodes[action]
+            .iter()
+            .skip(1)
+            .copied()
+            .collect();
+
+        // Update output node: weights = [bias, w0, w1, ..., w31]
+        let out_node = &mut self.q_network.layers[output_layer_idx].nodes[action];
+        out_node[0] += LEARNING_RATE * delta_out; // bias
+        for (j, w) in out_node.iter_mut().skip(1).enumerate() {
+            *w += LEARNING_RATE * delta_out * hidden_out[j];
+        }
+
+        // --- Hidden layer: backprop from the action node ---
+        let inputs = &activations[0];
+        for (j, hidden_node) in self.q_network.layers[0].nodes.iter_mut().enumerate() {
+            let hj = activations[1][j];
+            let sig_deriv_h = hj * (1.0 - hj);
+            let delta_h = delta_out * out_weights_snapshot[j] * sig_deriv_h;
+
+            hidden_node[0] += LEARNING_RATE * delta_h; // bias
+            for (k, w) in hidden_node.iter_mut().skip(1).enumerate() {
+                *w += LEARNING_RATE * delta_h * inputs[k];
             }
         }
     }
