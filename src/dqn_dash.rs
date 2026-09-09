@@ -33,7 +33,7 @@ use crate::configs::{
     GRID_H, GRID_W, HIDDEN_LAYER_SIZE, INP_LAYER_SIZE, NUM_SIM_STEPS, OUTPUT_LAYER_SIZE,
 };
 use crate::dqn::{
-    BATCH_SIZE, EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE,
+    argmax_index, BATCH_SIZE, EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE,
     REPLAY_BUFFER_SIZE,
 };
 use crate::game_dqn::GameDQN;
@@ -281,14 +281,27 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
         draw_text(&format!("H{}", i), hidden_x - 35.0, y + 6.0, 18.0, TEXT_COLOR);
     }
 
-    // Draw output nodes with activation
+    // Draw output nodes with activation: continuous Q-value readout per action
+    // (raw sigmoid output) plus a white ring + accent label on the argmax, so
+    // the agent's preferred action is readable at a glance.
     let final_output = outputs.last().unwrap();
+    let argmax = argmax_index(final_output);
     for (i, &value) in final_output.iter().enumerate() {
         let y = output_start_y + i as f32 * output_spacing;
         let intensity = output_intensity(value) as f32;
         let color = Color::new(intensity, intensity * 0.3, intensity * 0.9, 1.0);
         draw_circle(output_x, y, 10.0, color);
-        draw_text(output_labels[i], output_x + 22.0, y + 7.0, 20.0, TEXT_COLOR);
+        if i == argmax {
+            draw_circle_lines(output_x, y, 13.0, 2.0, WHITE);
+        }
+        let label_color = if i == argmax { ACCENT_COLOR } else { TEXT_COLOR };
+        draw_text(
+            &format!("{} {:.3}", output_labels[i], value),
+            output_x + 22.0,
+            y + 7.0,
+            20.0,
+            label_color,
+        );
     }
 }
 
