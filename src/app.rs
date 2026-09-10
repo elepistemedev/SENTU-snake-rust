@@ -290,7 +290,17 @@ impl App {
     }
 
     fn handle_theme_config_input(&mut self) {
+        let old_sel = self.theme_selection;
+
         if is_key_pressed(KeyCode::Escape) {
+            let selected_theme = match self.theme_selection {
+                0 => crate::theme::GameTheme::Retro,
+                1 => crate::theme::GameTheme::Arcade,
+                2 => crate::theme::GameTheme::Pleasant,
+                _ => crate::theme::GameTheme::Meadow,
+            };
+            self.active_theme = selected_theme;
+            crate::theme::save_theme(selected_theme).ok();
             self.navigate(Action::Esc);
             return;
         }
@@ -313,13 +323,20 @@ impl App {
         } else if is_key_pressed(KeyCode::Key4) {
             self.theme_selection = 3;
         }
+
+        let selected_theme = match self.theme_selection {
+            0 => crate::theme::GameTheme::Retro,
+            1 => crate::theme::GameTheme::Arcade,
+            2 => crate::theme::GameTheme::Pleasant,
+            _ => crate::theme::GameTheme::Meadow,
+        };
+
+        if self.theme_selection != old_sel {
+            self.active_theme = selected_theme;
+            crate::theme::save_theme(selected_theme).ok();
+        }
+
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter) {
-            let selected_theme = match self.theme_selection {
-                0 => crate::theme::GameTheme::Retro,
-                1 => crate::theme::GameTheme::Arcade,
-                2 => crate::theme::GameTheme::Pleasant,
-                _ => crate::theme::GameTheme::Meadow,
-            };
             self.active_theme = selected_theme;
             crate::theme::save_theme(selected_theme).ok();
             self.navigate(Action::Esc);
@@ -550,7 +567,7 @@ impl App {
 
         fn draw_dqn_train(&mut self) {
             if let Some(view) = &self.dqn {
-                view.draw();
+                view.draw(self.active_theme);
                 // The shell hotkey hint must not overlap the dashboard's bottom
                 // model-info panel (design D-8): it is drawn only while the compact
                 // HUD is the active target. The dashboard carries its own controls
