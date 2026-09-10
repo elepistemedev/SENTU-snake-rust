@@ -232,15 +232,16 @@ impl DqnTrainView {
     /// bookkeeping); the `Tab`-toggled legacy compact HUD draws through
     /// [`DqnTrainView::draw_hud`]. Dispatching never perturbs the in-flight
     /// episode or session state.
-    pub fn draw(&self) {
+    pub fn draw(&self, theme: crate::theme::GameTheme) {
         match dqn_render_target(self.dashboard) {
-            DqnRenderTarget::Dashboard => dqn_dash::draw(
+            DqnRenderTarget::Dashboard => dqn_dash::draw_with_theme(
                 &self.game,
                 self.episode,
                 self.best_score,
                 &self.history,
+                theme,
             ),
-            DqnRenderTarget::Hud => self.draw_hud(),
+            DqnRenderTarget::Hud => self.draw_hud(theme),
         }
     }
 
@@ -249,7 +250,7 @@ impl DqnTrainView {
     /// dimensions — the old `main_dqn` used hardcoded `offset_x = 250`,
     /// `tile_size = 20` offsets that assumed an 800×600 window. Moved unchanged
     /// out of the former single `draw()` (design D-3).
-    fn draw_hud(&self) {
+    fn draw_hud(&self, theme: crate::theme::GameTheme) {
         clear_background(BLACK);
 
         draw_text(
@@ -271,7 +272,6 @@ impl DqnTrainView {
 
         let (tile_size, offset_x, offset_y) = self.grid_layout();
 
-        let theme = crate::theme::load_theme();
         let colors = theme.colors();
 
         // Food
