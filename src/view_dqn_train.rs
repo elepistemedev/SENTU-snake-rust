@@ -107,11 +107,26 @@ impl DqnTrainView {
         // Only a champion matching the current DQN architecture (9×32×3) is
         // accepted; a stale 12×8×4 file is discarded gracefully (no panic).
         let champion = champion_store::load(champion_path)
-        .filter(|net| net.matches_arch(&crate::dqn::DQN_ARCH));
+            .filter(|net| net.matches_arch(&crate::dqn::DQN_ARCH));
+        let meta_path = if champion_path == DQN_CHAMPION_FILE {
+            champion_store::DQN_METADATA_FILE.to_string()
+        } else {
+            format!("{champion_path}.meta.json")
+        };
+        let metadata = champion_store::load_metadata(&meta_path);
+        let (best_score, episode) = if champion.is_some() {
+            if let Some(m) = metadata {
+                (m.best_score, m.episode)
+            } else {
+                (1, 0)
+            }
+        } else {
+            (0, 0)
+        };
         Self {
             game: GameDQN::new(),
-            episode: 0,
-            best_score: 0,
+            episode,
+            best_score,
             champion,
             dashboard: true,
             history: EpisodeHistory::new(),
@@ -156,9 +171,37 @@ impl DqnTrainView {
                     self.champion_path
                 );
             }
+            let meta = champion_store::DqnMetadata {
+                best_score: self.best_score,
+                episode: self.episode,
+            };
+            let meta_path = if self.champion_path == DQN_CHAMPION_FILE {
+                champion_store::DQN_METADATA_FILE.to_string()
+            } else {
+                format!("{}.meta.json", self.champion_path)
+            };
+            if let Err(e) = champion_store::save_metadata(&meta_path, &meta) {
+                eprintln!("warning: could not persist DQN metadata to {meta_path}: {e}");
+            }
         }
 
         self.game.reset();
+    }
+
+    /// Explicitly synchronize current metadata to disk on session exit/pause.
+    pub fn sync_save(&self) {
+        if self.champion.is_some() {
+            let meta = champion_store::DqnMetadata {
+                best_score: self.best_score,
+                episode: self.episode,
+            };
+            let meta_path = if self.champion_path == DQN_CHAMPION_FILE {
+                champion_store::DQN_METADATA_FILE.to_string()
+            } else {
+                format!("{}.meta.json", self.champion_path)
+            };
+            let _ = champion_store::save_metadata(&meta_path, &meta);
+        }
     }
 
     /// Start a fresh agent: a new [`GameDQN`] (random q-network, epsilon 1.0,
@@ -357,6 +400,11 @@ mod tests {
     const TEST_ROUNDTRIP_FILE: &str = "dqn_champion_roundtrip_test.json";
     const TEST_OLD_ARCH_FILE: &str = "dqn_champion_old_arch_test.json";
 
+    fn cleanup_test_file(path: &str) {
+        std::fs::remove_file(path).ok();
+        std::fs::remove_file(format!("{path}.meta.json")).ok();
+    }
+
     /// `Net` has no `PartialEq`. Exact-weight comparison (valid for in-memory
     /// clones, which never pass through serialization).
     fn nets_eq(a: &Net, b: &Net) -> bool {
@@ -470,7 +518,7 @@ mod tests {
         );
         // Episode bookkeeping advanced regardless of whether a record happened.
         let _ = view.episode();
-        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+        cleanup_test_file(TEST_BOOKKEEPING_FILE);
     }
 
     #[test]
@@ -519,7 +567,7 @@ mod tests {
             nets_eq(kept, &recorded),
             "a recorded champion is not a session artifact and must be retained"
         );
-        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+        cleanup_test_file(TEST_BOOKKEEPING_FILE);
     }
 
     #[test]
@@ -609,7 +657,7 @@ mod tests {
         );
         assert_eq!(view.episode(), 7, "toggling never resets the session");
         assert_eq!(view.best_score(), 11, "toggling never resets the session best");
-        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+        cleanup_test_file(TEST_BOOKKEEPING_FILE);
     }
 
     // --- Slice A: episode-end / fresh-agent history bookkeeping (spec) ---------
@@ -651,6 +699,55 @@ mod tests {
             view.champion().is_none(),
             "below-best episode never touches the champion"
         );
-        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+        cleanup_test_file(TEST_BOOKKEEPING_FILE);
+    }
+
+    #[test]
+    fn existing_champion_and_metadata_persists_across_sessions_and_ignores_lower_scores() {
+        const TEST_PERSIST_FILE: &str = "dqn_champion_persist_test.json";
+        let meta_file = format!("{TEST_PERSIST_FILE}.meta.json");
+
+        // Clean any leftover
+        std::fs::remove_file(TEST_PERSIST_FILE).ok();
+        std::fs::remove_file(&meta_file).ok();
+
+        // Save initial champion with score 20, ep 50
+        let original_champion = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
+        champion_store::save(TEST_PERSIST_FILE, &original_champion).unwrap();
+        let meta = champion_store::DqnMetadata {
+            best_score: 20,
+            episode: 50,
+        };
+        champion_store::save_metadata(&meta_file, &meta).unwrap();
+
+        // Open new session at that path
+        let mut view = DqnTrainView::at_path(TEST_PERSIST_FILE);
+        assert_eq!(view.best_score(), 20, "session must initialize best_score from metadata");
+        assert_eq!(view.episode(), 50, "session must initialize episode from metadata");
+        assert!(view.champion().is_some());
+
+        // Simulate an episode scoring 5 (below 20)
+        view.game.score = 5;
+        view.game.steps = 30;
+        view.end_episode();
+
+        // Best score must NOT be reduced, and champion must NOT be replaced
+        assert_eq!(view.best_score(), 20);
+        let loaded_net = champion_store::load(TEST_PERSIST_FILE).unwrap();
+        assert!(nets_approx_eq(&loaded_net, &original_champion), "champion must not be replaced by lower score");
+
+        // Simulate an episode scoring 25 (beats 20)
+        view.game.score = 25;
+        view.game.steps = 100;
+        view.end_episode();
+
+        assert_eq!(view.best_score(), 25);
+        let loaded_meta = champion_store::load_metadata(&meta_file).unwrap();
+        assert_eq!(loaded_meta.best_score, 25);
+        assert_eq!(loaded_meta.episode, 52);
+
+        // Cleanup
+        std::fs::remove_file(TEST_PERSIST_FILE).ok();
+        std::fs::remove_file(&meta_file).ok();
     }
 }

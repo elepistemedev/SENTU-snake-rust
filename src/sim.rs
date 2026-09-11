@@ -135,7 +135,7 @@ impl Simulation {
         }
     }
 
-    fn save_metadata(&self) {
+    pub fn save_metadata(&self) {
         let (gen_times, gen_scores) = self.viz.get_history();
         let metadata = SimMetadata {
             gen_count: self.gen_count,
@@ -149,6 +149,18 @@ impl Simulation {
         if let Ok(json) = serde_json::to_string_pretty(&metadata) {
             fs::write("sim_metadata.json", json).ok();
         }
+    }
+
+    pub fn best_net_ever(&self) -> Option<&Net> {
+        self.best_net_ever.as_ref()
+    }
+
+    pub fn second_best_net_ever(&self) -> Option<&Net> {
+        self.second_best_net_ever.as_ref()
+    }
+
+    pub fn max_score_ever(&self) -> usize {
+        self.max_score_ever
     }
 
     pub fn update(&mut self, is_viz_enabled: bool, _is_slow_mode: bool) {
@@ -295,22 +307,25 @@ impl Simulation {
         let stats = self.pop.get_gen_summary();
         let current_score = stats.max_score;
 
-        if current_score > self.max_score_ever {
+        if current_score > self.max_score_ever && current_score > 0 {
             // New best - shift rankings
             self.second_best_net_ever = self.best_net_ever.clone();
             self.second_max_score_ever = self.max_score_ever;
             self.best_net_ever = stats.best_net.clone();
             self.max_score_ever = current_score;
+            self.pop.save_best_net();
+            self.save_metadata();
         } else if current_score > self.second_max_score_ever && current_score > 0 {
             // New second best
             self.second_best_net_ever = stats.best_net.clone();
             self.second_max_score_ever = current_score;
+            self.save_metadata();
         }
 
         self.viz
             .update_generation(stats.max_steps as f32, stats.max_score);
 
-        // Save every 10 generations
+        // Periodic checkpoint every 10 generations even if record wasn't broken
         if self.gen_count.is_multiple_of(10) {
             self.pop.save_best_net();
             self.save_metadata();

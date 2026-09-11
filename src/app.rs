@@ -409,6 +409,12 @@ impl App {
             Transition::Quit => self.quit = true,
             Transition::Stay => {}
             Transition::ToMenu => {
+                if let Some(dqn) = &self.dqn {
+                    dqn.sync_save();
+                }
+                if let Some(ga) = &self.ga {
+                    ga.sync_save();
+                }
                 self.mode = AppMode::Menu;
                 // Paused trainers (self.dqn/self.ga) are retained; the transient
                 // match is dropped so the next entry builds a fresh one.
@@ -438,11 +444,11 @@ impl App {
             }
             Transition::GaVersusNew => {
                 self.mode = AppMode::GaVersus;
-                self.match_view = Some(MatchView::GaVersus(GaVersusView::new()));
+                self.match_view = Some(MatchView::GaVersus(self.build_ga_versus()));
             }
             Transition::CrossNew => {
                 self.mode = AppMode::DqnVsGa;
-                self.match_view = Some(MatchView::Cross(CrossMatchView::new()));
+                self.match_view = Some(MatchView::Cross(self.build_cross_match()));
             }
             Transition::ThemeConfig => {
                 self.mode = AppMode::ThemeConfig;
@@ -471,6 +477,31 @@ impl App {
         // the view pits the champion against a fresh greedy agent.
         let live = self.dqn.as_ref().map(|view| view.live_net().clone());
         DqnVersusView::new(champion, live)
+    }
+
+    /// Build a fresh GA-versus match from the paused GA trainer or disk fallback.
+    fn build_ga_versus(&self) -> GaVersusView {
+        let champions = self
+            .ga
+            .as_ref()
+            .map(|view| view.champions())
+            .unwrap_or_else(crate::sim::load_ga_champions);
+        GaVersusView::from_champions(champions)
+    }
+
+    /// Build a fresh Cross-Match arena using best available GA and DQN champions.
+    fn build_cross_match(&self) -> CrossMatchView {
+        let ga = self
+            .ga
+            .as_ref()
+            .and_then(|view| view.best_net())
+            .or_else(crate::pop::Population::load_best_net);
+        let dqn = self
+            .dqn
+            .as_ref()
+            .and_then(|view| view.champion().cloned())
+            .or_else(|| champion_store::load(DQN_CHAMPION_FILE));
+        CrossMatchView::from_nets(ga, dqn)
     }
 
     // --- per-mode tick ---------------------------------------------------------
@@ -515,7 +546,8 @@ impl App {
     }
 
     fn has_ga_champion(&self) -> bool {
-        std::path::Path::new("best_snake.json").is_file()
+        self.ga.as_ref().and_then(|v| v.best_net()).is_some()
+            || std::path::Path::new("best_snake.json").is_file()
             || std::path::Path::new("sim_metadata.json").is_file()
     }
 

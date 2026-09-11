@@ -431,6 +431,9 @@ fn draw_stats_panels(
     // TRAINING STATS
     let stats_y = 20.0;
     draw_terminal_box(panel_x, stats_y, panel_w, stats_h, "TRAINING STATS", false);
+    if best_score > 0 {
+        draw_badge("GUARDADO", panel_x + panel_w - 95.0, stats_y + 13.0, ACCENT_GREEN);
+    }
     let mut y = stats_y + 45.0;
     draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Episode:", &format!("{}", episode));
     y += 19.0;

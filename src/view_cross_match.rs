@@ -127,13 +127,7 @@ impl CrossMatchView {
     }
 
     /// Same as [`CrossMatchView::new`] from explicit per-side champions.
-    /// Production loads them from disk; tests inject a deterministic set so the
-    /// real `best_snake.json`/`dqn_champion.json` files are never touched.
-    ///
-    /// The DQN champion is only accepted when it matches the current DQN
-    /// architecture (`DQN_ARCH`); a stale 12×8×4 champion is treated as missing
-    /// (discarded, no panic).
-    fn from_nets(ga: Option<Net>, dqn: Option<Net>) -> Self {
+    pub fn from_nets(ga: Option<Net>, dqn: Option<Net>) -> Self {
         let dqn = dqn.filter(|n| n.matches_arch(&crate::dqn::DQN_ARCH));
         let plan = plan_cross_match(ga, dqn);
         if let CrossMatchPlayers::Ready { ga, dqn } = plan {
