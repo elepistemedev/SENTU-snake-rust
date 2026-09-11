@@ -167,6 +167,14 @@ impl MatchView {
         }
     }
 
+    fn restart(&mut self) {
+        match self {
+            MatchView::DqnVersus(v) => v.restart(),
+            MatchView::GaVersus(v) => v.restart(),
+            MatchView::Cross(v) => v.restart(),
+        }
+    }
+
     fn draw(&self) {
         match self {
             MatchView::DqnVersus(v) => v.draw(),
@@ -390,9 +398,14 @@ impl App {
         // Esc always returns to the menu (aborts a running match or leaves a
         // finished one). Enter dismisses only a *finished* result — the shell
         // gates it so a stray Enter never aborts a running match.
+        // R restarts the series if finished (rematch).
         let finished = self.match_view.as_ref().is_some_and(|m| m.is_finished());
         if is_key_pressed(KeyCode::Escape) {
             self.navigate(Action::Esc);
+        } else if finished && is_key_pressed(KeyCode::R) {
+            if let Some(m) = &mut self.match_view {
+                m.restart();
+            }
         } else if finished && (is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter)) {
             self.navigate(Action::Enter);
         }
