@@ -143,44 +143,91 @@ pub fn next_mode(mode: AppMode, action: Action, has_dqn: bool, has_ga: bool) -> 
     }
 }
 
-/// The transient versus/cross match holder: exactly one is alive when the shell
-/// is in a match mode, freshly constructed on every entry.
-enum MatchView {
+enum MatchInner {
     DqnVersus(DqnVersusView),
     GaVersus(GaVersusView),
     Cross(CrossMatchView),
 }
 
+/// The transient versus/cross match holder: exactly one is alive when the shell
+/// is in a match mode, freshly constructed on every entry.
+pub struct MatchView {
+    inner: MatchInner,
+    slow: bool,
+}
+
 impl MatchView {
+    pub fn dqn_versus(v: DqnVersusView) -> Self {
+        Self {
+            inner: MatchInner::DqnVersus(v),
+            slow: true,
+        }
+    }
+
+    pub fn ga_versus(v: GaVersusView) -> Self {
+        Self {
+            inner: MatchInner::GaVersus(v),
+            slow: true,
+        }
+    }
+
+    pub fn cross(v: CrossMatchView) -> Self {
+        Self {
+            inner: MatchInner::Cross(v),
+            slow: true,
+        }
+    }
+
+    pub fn is_slow(&self) -> bool {
+        self.slow
+    }
+
+    pub fn toggle_slow(&mut self) {
+        self.slow = !self.slow;
+    }
+
     fn tick(&mut self) {
-        match self {
-            MatchView::DqnVersus(v) => v.tick(),
-            MatchView::GaVersus(v) => v.tick(),
-            MatchView::Cross(v) => v.tick(),
+        let budget = if self.slow {
+            1
+        } else {
+            *crate::view_ga_train::MAX_FAST_TICKS_PER_FRAME
+        };
+        for _ in 0..budget {
+            match &mut self.inner {
+                MatchInner::DqnVersus(v) => v.tick(),
+                MatchInner::GaVersus(v) => v.tick(),
+                MatchInner::Cross(v) => v.tick(),
+            }
+            if self.is_finished() {
+                break;
+            }
+        }
+        if self.slow {
+            std::thread::sleep(std::time::Duration::from_millis(*crate::configs::SIM_SLEEP_MILLIS));
         }
     }
 
     fn is_finished(&self) -> bool {
-        match self {
-            MatchView::DqnVersus(v) => v.is_finished(),
-            MatchView::GaVersus(v) => v.is_finished(),
-            MatchView::Cross(v) => v.is_finished(),
+        match &self.inner {
+            MatchInner::DqnVersus(v) => v.is_finished(),
+            MatchInner::GaVersus(v) => v.is_finished(),
+            MatchInner::Cross(v) => v.is_finished(),
         }
     }
 
     fn restart(&mut self) {
-        match self {
-            MatchView::DqnVersus(v) => v.restart(),
-            MatchView::GaVersus(v) => v.restart(),
-            MatchView::Cross(v) => v.restart(),
+        match &mut self.inner {
+            MatchInner::DqnVersus(v) => v.restart(),
+            MatchInner::GaVersus(v) => v.restart(),
+            MatchInner::Cross(v) => v.restart(),
         }
     }
 
     fn draw(&self) {
-        match self {
-            MatchView::DqnVersus(v) => v.draw(),
-            MatchView::GaVersus(v) => v.draw(),
-            MatchView::Cross(v) => v.draw(),
+        match &self.inner {
+            MatchInner::DqnVersus(v) => v.draw(),
+            MatchInner::GaVersus(v) => v.draw(),
+            MatchInner::Cross(v) => v.draw(),
         }
     }
 }
@@ -361,6 +408,11 @@ impl App {
             self.navigate(Action::Esc);
             return;
         }
+        if is_key_released(KeyCode::Space) {
+            if let Some(view) = &mut self.dqn {
+                view.toggle_slow();
+            }
+        }
         if is_key_pressed(KeyCode::R) {
             if let Some(view) = &mut self.dqn {
                 view.fresh_agent();
@@ -409,6 +461,10 @@ impl App {
             }
         } else if finished && (is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter)) {
             self.navigate(Action::Enter);
+        } else if is_key_released(KeyCode::Space) {
+            if let Some(m) = &mut self.match_view {
+                m.toggle_slow();
+            }
         }
     }
 
@@ -445,7 +501,7 @@ impl App {
             }
             Transition::DqnVersusNew => {
                 self.mode = AppMode::DqnVersus;
-                self.match_view = Some(MatchView::DqnVersus(self.build_dqn_versus()));
+                self.match_view = Some(MatchView::dqn_versus(self.build_dqn_versus()));
             }
             Transition::GaTrainNew => {
                 self.mode = AppMode::GaTrain;
@@ -458,11 +514,11 @@ impl App {
             }
             Transition::GaVersusNew => {
                 self.mode = AppMode::GaVersus;
-                self.match_view = Some(MatchView::GaVersus(self.build_ga_versus()));
+                self.match_view = Some(MatchView::ga_versus(self.build_ga_versus()));
             }
             Transition::CrossNew => {
                 self.mode = AppMode::DqnVsGa;
-                self.match_view = Some(MatchView::Cross(self.build_cross_match()));
+                self.match_view = Some(MatchView::cross(self.build_cross_match()));
             }
             Transition::ThemeConfig => {
                 self.mode = AppMode::ThemeConfig;
@@ -1147,5 +1203,15 @@ mod tests {
         let app = super::App::new();
         let _ = app.has_dqn_champion();
         let _ = app.has_ga_champion();
+    }
+
+    #[test]
+    fn match_view_slow_toggle() {
+        let mut mv = super::MatchView::dqn_versus(crate::view_dqn_versus::DqnVersusView::new(None, None));
+        assert!(mv.is_slow());
+        mv.toggle_slow();
+        assert!(!mv.is_slow());
+        mv.toggle_slow();
+        assert!(mv.is_slow());
     }
 }

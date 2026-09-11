@@ -98,7 +98,7 @@ fn cross_flavor() -> VsFlavor {
         eliminated1_label: "Algoritmo Genético eliminado!",
         eliminated2_label: "DQN eliminado!",
         back_label: "[ESC] Menú",
-        controls_label: "[ESC] Menú",
+        controls_label: "[SPACE] Vel  [ESC] Menú",
     }
 }
 
