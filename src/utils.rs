@@ -1,4 +1,3 @@
-use macroquad::color::Color;
 use rand::Rng;
 
 use crate::*;
@@ -26,14 +25,6 @@ pub fn map_to_unit_interval(value: f32, range: f32) -> f32 {
 
 pub fn grid_to_world(x: i32, y: i32, tile_size: f32, scale: f32) -> (f32, f32) {
     (x as f32 * tile_size * scale, y as f32 * tile_size * scale)
-}
-
-pub fn color_with_a(color: Color, a: f32) -> Color {
-    Color::new(color.r, color.g, color.b, a)
-}
-
-pub fn are_colors_equal(c1: Color, c2: Color) -> bool {
-    c1.r == c2.r && c1.g == c2.g && c1.b == c2.b
 }
 
 impl FourDirs {

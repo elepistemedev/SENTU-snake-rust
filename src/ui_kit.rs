@@ -25,6 +25,16 @@ pub const ACCENT_GREEN: Color = Color::new(0.30, 0.90, 0.40, 1.0);
 pub const ACCENT_RED: Color = Color::new(0.95, 0.30, 0.30, 1.0);
 pub const TEXT_MUTED: Color = Color::new(0.60, 0.65, 0.70, 1.0);
 
+#[inline]
+pub fn color_with_a(color: Color, a: f32) -> Color {
+    Color::new(color.r, color.g, color.b, a)
+}
+
+#[inline]
+pub fn are_colors_equal(c1: Color, c2: Color) -> bool {
+    c1.r == c2.r && c1.g == c2.g && c1.b == c2.b
+}
+
 // ---------------------------------------------------------------------------
 // Brand Watermark (ASCII Art)
 // ---------------------------------------------------------------------------
