@@ -180,6 +180,7 @@ fn draw_grid(game: &GameDQN, screen_h: f32, theme: crate::theme::GameTheme) {
         tile_size,
         theme,
         colors.food,
+        game.core.food_freshness(),
     );
 
     // The one live snake

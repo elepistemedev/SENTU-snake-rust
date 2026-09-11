@@ -388,6 +388,7 @@ impl DqnTrainView {
             tile_size,
             theme,
             colors.food,
+            self.game.core.food_freshness(),
         );
 
         // Snake

@@ -395,6 +395,7 @@ impl VizVS {
             tile_size,
             theme,
             theme.colors().food,
+            game.core.food_freshness(),
         );
 
         // Snake

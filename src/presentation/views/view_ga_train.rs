@@ -295,6 +295,7 @@ impl GaTrainView {
                 tile_size,
                 theme,
                 colors.food,
+                best_game.core.food_freshness(),
             );
 
             // Snake

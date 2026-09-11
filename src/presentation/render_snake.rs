@@ -78,10 +78,42 @@ pub fn compute_eye_offsets(dir: FourDirs, tile_size: f32) -> (EyeOffset, EyeOffs
     )
 }
 
-/// Draws food: classic solid square for Retro, or an apple with stem, leaf and shine for Arcade/Pleasant.
-pub fn draw_apple(x: f32, y: f32, tile_size: f32, theme: GameTheme, color: Color) {
+/// Interpolates food color from fresh (theme color) to rotting/overripe (dark brownish purple).
+pub fn decaying_food_color(base: Color, freshness: f32) -> Color {
+    let f = freshness.clamp(0.0, 1.0);
+    let rotten_r = 0.35;
+    let rotten_g = 0.18;
+    let rotten_b = 0.14;
+
+    Color::new(
+        rotten_r + (base.r - rotten_r) * f,
+        rotten_g + (base.g - rotten_g) * f,
+        rotten_b + (base.b - rotten_b) * f,
+        base.a,
+    )
+}
+
+/// Interpolates leaf color from fresh green to withered dry brown.
+pub fn decaying_leaf_color(freshness: f32) -> Color {
+    let f = freshness.clamp(0.0, 1.0);
+    let fresh_leaf = Color::new(0.25, 0.85, 0.35, 1.0);
+    let dry_leaf = Color::new(0.40, 0.28, 0.15, 1.0);
+
+    Color::new(
+        dry_leaf.r + (fresh_leaf.r - dry_leaf.r) * f,
+        dry_leaf.g + (fresh_leaf.g - dry_leaf.g) * f,
+        dry_leaf.b + (fresh_leaf.b - dry_leaf.b) * f,
+        1.0,
+    )
+}
+
+/// Draws food: classic solid square for Retro, or an apple with stem, leaf and shine for Arcade/Pleasant,
+/// modulated by its freshness ratio [0.0, 1.0].
+pub fn draw_apple(x: f32, y: f32, tile_size: f32, theme: GameTheme, color: Color, freshness: f32) {
+    let food_color = decaying_food_color(color, freshness);
+
     if theme == GameTheme::Retro {
-        draw_rectangle(x + 2.0, y + 2.0, tile_size - 4.0, tile_size - 4.0, color);
+        draw_rectangle(x + 2.0, y + 2.0, tile_size - 4.0, tile_size - 4.0, food_color);
         return;
     }
 
@@ -91,11 +123,12 @@ pub fn draw_apple(x: f32, y: f32, tile_size: f32, theme: GameTheme, color: Color
 
     // Apple outline / shadow if Meadow theme
     if theme == GameTheme::Meadow {
-        draw_circle(cx, cy, r + 1.2, Color::new(0.60, 0.10, 0.16, 1.0));
+        let shadow_color = Color::new(0.60 * freshness.max(0.4), 0.10, 0.16, 1.0);
+        draw_circle(cx, cy, r + 1.2, shadow_color);
     }
 
     // Apple main body
-    draw_circle(cx, cy, r, color);
+    draw_circle(cx, cy, r, food_color);
 
     // Stem (tallo marrón)
     let stem_color = Color::new(0.42, 0.24, 0.12, 1.0);
@@ -108,8 +141,8 @@ pub fn draw_apple(x: f32, y: f32, tile_size: f32, theme: GameTheme, color: Color
         stem_color,
     );
 
-    // Leaf (hojita verde)
-    let leaf_color = Color::new(0.25, 0.85, 0.35, 1.0);
+    // Leaf (hojita verde marchitable)
+    let leaf_color = decaying_leaf_color(freshness);
     draw_circle(
         cx + tile_size * 0.16,
         y + tile_size * 0.15,
@@ -117,14 +150,17 @@ pub fn draw_apple(x: f32, y: f32, tile_size: f32, theme: GameTheme, color: Color
         leaf_color,
     );
 
-    // Specular shine (brillo de luz)
-    let shine_color = Color::new(1.0, 1.0, 1.0, 0.60);
-    draw_circle(
-        cx - r * 0.35,
-        cy - r * 0.35,
-        r * 0.26,
-        shine_color,
-    );
+    // Specular shine (brillo de luz que se atenúa y desaparece si está podrida)
+    if freshness > 0.15 {
+        let shine_alpha = 0.60 * ((freshness - 0.15) / 0.85).clamp(0.0, 1.0);
+        let shine_color = Color::new(1.0, 1.0, 1.0, shine_alpha);
+        draw_circle(
+            cx - r * 0.35,
+            cy - r * 0.35,
+            r * 0.26,
+            shine_color,
+        );
+    }
 }
 
 use crate::Point;
@@ -574,6 +610,32 @@ mod tests {
         assert_eq!(classify_segment(&body, 2, FourDirs::Right), SegmentKind::CornerBottomRight);
         assert_eq!(classify_segment(&body, 3, FourDirs::Right), SegmentKind::StraightVertical);
         assert_eq!(classify_segment(&body, 4, FourDirs::Right), SegmentKind::Tail(FourDirs::Bottom));
+    }
+
+    #[test]
+    fn decaying_food_color_interpolates_smoothly() {
+        let base = Color::new(0.9, 0.2, 0.2, 1.0);
+        let fresh = decaying_food_color(base, 1.0);
+        assert!((fresh.r - base.r).abs() < 1e-4);
+        assert!((fresh.g - base.g).abs() < 1e-4);
+        assert!((fresh.b - base.b).abs() < 1e-4);
+
+        let rotten = decaying_food_color(base, 0.0);
+        assert!(rotten.r < base.r);
+        assert!((rotten.r - 0.35).abs() < 1e-4);
+        assert!((rotten.g - 0.18).abs() < 1e-4);
+
+        let mid = decaying_food_color(base, 0.5);
+        assert!(mid.r < fresh.r && mid.r > rotten.r);
+    }
+
+    #[test]
+    fn decaying_leaf_color_shifts_from_green_to_dry_brown() {
+        let fresh_leaf = decaying_leaf_color(1.0);
+        let dry_leaf = decaying_leaf_color(0.0);
+
+        assert!(fresh_leaf.g > fresh_leaf.r);
+        assert!(dry_leaf.r > dry_leaf.g);
     }
 }
 
