@@ -1,16 +1,16 @@
 //! VS Mode visualization - Two snakes battle head-to-head
 
 use crate::*;
+use crate::ui_kit::{
+    draw_centered_text, draw_terminal_box, ACCENT_GOLD, ACCENT_RED, TEXT_MUTED,
+};
+use crate::versus::SeriesInfo;
 use macroquad::prelude::*;
 
-const PANEL_BG: Color = Color::new(0.05, 0.05, 0.05, 0.95);
 const PANEL_BORDER: Color = Color::new(0.4, 0.4, 0.4, 1.0);
 const TEXT_COLOR: Color = Color::new(0.9, 0.9, 0.9, 1.0);
 const SNAKE1_COLOR: Color = Color::new(0.3, 0.9, 0.3, 1.0);
 const SNAKE2_COLOR: Color = Color::new(0.9, 0.3, 0.3, 1.0);
-const GOLD: Color = Color::new(1.0, 0.8, 0.0, 1.0);
-const RECORD_LABEL_COLOR: Color = Color::new(0.7, 0.7, 0.7, 1.0);
-const CONTROLS_COLOR: Color = Color::new(0.6, 0.6, 0.6, 1.0);
 const TITLE_SIZE: f32 = 28.0;
 const TEXT_SIZE: f32 = 20.0;
 
@@ -137,17 +137,105 @@ impl VizVS {
             flavor.player2_title,
         );
 
-        // Center panel
+        // Center panel - shifted from 50.0 to 75.0 to avoid Series HUD collisions
         let center_x = (screen_w - center_panel_w) / 2.0;
         self.draw_center_panel(
             game1,
             game2,
             center_x,
-            50.0,
+            75.0,
             center_panel_w,
-            screen_h - 100.0,
+            screen_h - 125.0,
             flavor,
         );
+    }
+
+    /// Draw a versus match with the series HUD overlay.
+    ///
+    /// Calls [`draw_flavored`] first, then overlays the series scoreboard
+    /// (current game number, win-pips, and series-champion banner when done)
+    /// in the dedicated top margin above the center panel.
+    pub fn draw_series(
+        &self,
+        game1: &crate::game::Game,
+        game2: &crate::game::Game,
+        flavor: &VsFlavor,
+        info: &SeriesInfo,
+    ) {
+        self.draw_flavored(game1, game2, flavor);
+        let screen_w = screen_width();
+        let center_panel_w = 400.0;
+        let center_x = (screen_w - center_panel_w) / 2.0;
+        self.draw_series_hud(center_x, center_panel_w, flavor, info);
+    }
+
+    /// Draw the series scoreboard banner above the center panel.
+    ///
+    /// Layout (dedicated top margin y = 0.0..75.0, outside the center panel):
+    /// - y = 18.0: GAME N / 5
+    /// - y = 36.0: Win pips (Player 1 left, Player 2 right)
+    /// - y = 56.0: Series Winner banner when finished
+    fn draw_series_hud(
+        &self,
+        panel_x: f32,
+        panel_w: f32,
+        flavor: &VsFlavor,
+        info: &SeriesInfo,
+    ) {
+        let center_x = panel_x + panel_w * 0.5;
+
+        // "GAME N / 5" at y = 18.0
+        let game_no = (info.games_played + 1).min(info.total_games);
+        let label = format!("GAME {} / {}", game_no, info.total_games);
+        draw_centered_text(&label, center_x, 18.0, 18.0, ACCENT_GOLD);
+
+        // Win pips at y = 36.0: Player 1 (left) and Player 2 (right).
+        // Best-of-5 indicator pips with player colors.
+        let pip_r = 5.0;
+        let pip_gap = 18.0;
+        let total_pips = crate::versus::SERIES_GAMES;
+        let pip_y = 36.0;
+
+        // Player 1 pips (left side, expanding outward from center)
+        for i in 0..total_pips {
+            let cx = center_x - 24.0 - i as f32 * pip_gap;
+            let filled = i < info.left_wins;
+            let col = flavor.player1_color;
+            if filled {
+                // Glowing circular indicator pip with player color
+                draw_circle(cx, pip_y, pip_r + 2.0, Color::new(col.r, col.g, col.b, 0.25));
+                draw_circle(cx, pip_y, pip_r, col);
+            } else {
+                draw_circle_lines(cx, pip_y, pip_r, 1.5, Color::new(col.r, col.g, col.b, 0.35));
+            }
+        }
+
+        // Player 2 pips (right side, expanding outward from center)
+        for i in 0..total_pips {
+            let cx = center_x + 24.0 + i as f32 * pip_gap;
+            let filled = i < info.right_wins;
+            let col = flavor.player2_color;
+            if filled {
+                // Glowing circular indicator pip with player color
+                draw_circle(cx, pip_y, pip_r + 2.0, Color::new(col.r, col.g, col.b, 0.25));
+                draw_circle(cx, pip_y, pip_r, col);
+            } else {
+                draw_circle_lines(cx, pip_y, pip_r, 1.5, Color::new(col.r, col.g, col.b, 0.35));
+            }
+        }
+
+        // Series champion banner at y = 56.0 (only when the series is over).
+        // Positioned outside the center panel (which starts at y = 75.0).
+        if info.is_over {
+            let (banner, color) = if info.left_wins > info.right_wins {
+                (format!("🏆 {} WINS SERIES!", flavor.player1_title), flavor.player1_color)
+            } else if info.right_wins > info.left_wins {
+                (format!("🏆 {} WINS SERIES!", flavor.player2_title), flavor.player2_color)
+            } else {
+                ("SERIES TIE!".to_string(), ACCENT_GOLD)
+            };
+            draw_centered_text(&banner, center_x, 56.0, 20.0, color);
+        }
     }
 
     fn draw_grid(
@@ -161,8 +249,8 @@ impl VizVS {
     ) {
         let tile_size = size / GRID_W as f32;
 
-        // Title
-        draw_text(title, x, y - 15.0, TITLE_SIZE, color);
+        // Title centered over grid
+        draw_centered_text(title, x + size * 0.5, y - 15.0, TITLE_SIZE, color);
 
         // Border
         draw_rectangle(x - 5.0, y - 5.0, size + 10.0, size + 10.0, PANEL_BORDER);
@@ -231,9 +319,9 @@ impl VizVS {
             );
         }
 
-        // Status indicator
+        // Status indicator centered under grid
         if game.is_complete {
-            draw_text("DEAD", x + size / 2.0 - 40.0, y + size + 30.0, 24.0, RED);
+            draw_centered_text("DEAD", x + size * 0.5, y + size + 30.0, 24.0, ACCENT_RED);
         }
     }
 
@@ -247,140 +335,124 @@ impl VizVS {
         h: f32,
         flavor: &VsFlavor,
     ) {
-        draw_rectangle(x, y, w, h, PANEL_BG);
-        draw_rectangle_lines(x, y, w, h, 4.0, PANEL_BORDER);
+        draw_terminal_box(x, y, w, h, "", false);
 
-        let mut cy = y + 60.0;
+        let center_cx = x + w * 0.5;
+        let col1_cx = x + w * 0.25;
+        let col2_cx = x + w * 0.75;
+
+        let mut cy = y + 45.0;
 
         // VS Title
-        draw_text("VS", x + w / 2.0 - 30.0, cy, 48.0, GOLD);
-        cy += 60.0;
+        draw_centered_text("VS", center_cx, cy, 44.0, ACCENT_GOLD);
+        cy += 45.0;
 
         // Historical record (only for record-bearing flavors, e.g. GA)
         if let Some(record) = flavor.record {
-            draw_text(
-                flavor.record_beat_label,
-                x + w / 2.0 - 100.0,
-                cy,
-                18.0,
-                RECORD_LABEL_COLOR,
-            );
-            cy += 30.0;
-            draw_text(format!("{record}"), x + w / 2.0 - 20.0, cy, 36.0, GOLD);
-            cy += 60.0;
+            draw_centered_text(flavor.record_beat_label, center_cx, cy, 16.0, TEXT_MUTED);
+            cy += 24.0;
+            draw_centered_text(&format!("{record}"), center_cx, cy, 32.0, ACCENT_GOLD);
+            cy += 45.0;
         }
 
-        // Scores
+        // Scores section
         let score1 = game1.score();
         let score2 = game2.score();
 
-        draw_text("SCORE", x + w / 2.0 - 50.0, cy, TEXT_SIZE, TEXT_COLOR);
-        cy += 40.0;
+        draw_centered_text("SCORE", center_cx, cy, TEXT_SIZE, TEXT_COLOR);
+        cy += 38.0;
 
         // Check for new records
         let is_record1 = flavor.record.is_some_and(|record| score1 > record);
         let is_record2 = flavor.record.is_some_and(|record| score2 > record);
 
         let color1 = if is_record1 {
-            GOLD
+            ACCENT_GOLD
         } else {
             flavor.player1_color
         };
         let color2 = if is_record2 {
-            GOLD
+            ACCENT_GOLD
         } else {
             flavor.player2_color
         };
 
-        draw_text(format!("{score1}"), x + 80.0, cy, 42.0, color1);
+        draw_centered_text(&format!("{score1}"), col1_cx, cy, 40.0, color1);
+        draw_centered_text(&format!("{score2}"), col2_cx, cy, 40.0, color2);
+
         if is_record1 {
-            draw_text(flavor.new_record_label, x + 60.0, cy + 30.0, 16.0, GOLD);
+            draw_centered_text(flavor.new_record_label, col1_cx, cy + 24.0, 15.0, ACCENT_GOLD);
         }
-
-        draw_text(format!("{score2}"), x + w - 120.0, cy, 42.0, color2);
         if is_record2 {
-            draw_text(
-                flavor.new_record_label,
-                x + w - 140.0,
-                cy + 30.0,
-                16.0,
-                GOLD,
-            );
+            draw_centered_text(flavor.new_record_label, col2_cx, cy + 24.0, 15.0, ACCENT_GOLD);
         }
-        cy += 80.0;
+        cy += 50.0;
 
-        // Steps
-        draw_text("STEPS", x + w / 2.0 - 50.0, cy, TEXT_SIZE, TEXT_COLOR);
-        cy += 35.0;
-        draw_text(
-            format!("{}", game1.num_steps),
-            x + 80.0,
+        // Steps section
+        draw_centered_text("STEPS", center_cx, cy, TEXT_SIZE, TEXT_COLOR);
+        cy += 30.0;
+        draw_centered_text(
+            &format!("{}", game1.num_steps),
+            col1_cx,
             cy,
             TEXT_SIZE,
             flavor.player1_color,
         );
-        draw_text(
-            format!("{}", game2.num_steps),
-            x + w - 120.0,
+        draw_centered_text(
+            &format!("{}", game2.num_steps),
+            col2_cx,
             cy,
             TEXT_SIZE,
             flavor.player2_color,
         );
-        cy += 60.0;
+        cy += 48.0;
 
-        // Fitness
-        draw_text("FITNESS", x + w / 2.0 - 60.0, cy, TEXT_SIZE, TEXT_COLOR);
-        cy += 35.0;
-        draw_text(
-            format!("{:.1}", game1.fitness()),
-            x + 80.0,
+        // Fitness section
+        draw_centered_text("FITNESS", center_cx, cy, TEXT_SIZE, TEXT_COLOR);
+        cy += 30.0;
+        draw_centered_text(
+            &format!("{:.1}", game1.fitness()),
+            col1_cx,
             cy,
             TEXT_SIZE,
             flavor.player1_color,
         );
-        draw_text(
-            format!("{:.1}", game2.fitness()),
-            x + w - 120.0,
+        draw_centered_text(
+            &format!("{:.1}", game2.fitness()),
+            col2_cx,
             cy,
             TEXT_SIZE,
             flavor.player2_color,
         );
-        cy += 80.0;
+        cy += 55.0;
 
         // Winner indicator
         if game1.is_complete && game2.is_complete {
-            cy += 20.0;
-            let winner = if score1 > score2 {
-                flavor.winner1_label
+            cy += 10.0;
+            let (winner, winner_color) = if score1 > score2 {
+                (flavor.winner1_label, flavor.player1_color)
             } else if score2 > score1 {
-                flavor.winner2_label
+                (flavor.winner2_label, flavor.player2_color)
             } else {
-                flavor.tie_label
+                (flavor.tie_label, ACCENT_GOLD)
             };
-            let winner_color = if score1 > score2 {
-                flavor.player1_color
-            } else if score2 > score1 {
-                flavor.player2_color
-            } else {
-                YELLOW
-            };
-            draw_text(winner, x + w / 2.0 - 100.0, cy, 32.0, winner_color);
-            cy += 60.0;
-            draw_text(flavor.back_label, x + w / 2.0 - 120.0, cy, 18.0, TEXT_COLOR);
+            draw_centered_text(winner, center_cx, cy, 28.0, winner_color);
+            cy += 36.0;
+            draw_centered_text(flavor.back_label, center_cx, cy, 18.0, TEXT_COLOR);
         } else if game1.is_complete {
-            draw_text(flavor.eliminated1_label, x + 60.0, cy, 20.0, RED);
+            draw_centered_text(flavor.eliminated1_label, center_cx, cy, 18.0, ACCENT_RED);
         } else if game2.is_complete {
-            draw_text(flavor.eliminated2_label, x + 60.0, cy, 20.0, RED);
+            draw_centered_text(flavor.eliminated2_label, center_cx, cy, 18.0, ACCENT_RED);
         }
 
         // Controls
-        cy = y + h - 40.0;
-        draw_text(
+        let controls_y = y + h - 25.0;
+        draw_centered_text(
             flavor.controls_label,
-            x + w / 2.0 - 120.0,
-            cy,
-            16.0,
-            CONTROLS_COLOR,
+            center_cx,
+            controls_y,
+            15.0,
+            TEXT_MUTED,
         );
     }
 }
@@ -420,5 +492,55 @@ mod tests {
         let f = VsFlavor::ga_default(0);
         let none_flavor = VsFlavor { record: None, ..f };
         assert_eq!(none_flavor.record, None);
+    }
+
+    #[test]
+    fn center_panel_columns_are_symmetrically_aligned() {
+        let panel_x = 100.0;
+        let panel_w = 400.0;
+        let center = panel_x + panel_w * 0.5;
+        let col1 = panel_x + panel_w * 0.25;
+        let col2 = panel_x + panel_w * 0.75;
+        // Col 1 and Col 2 must be equidistant from center
+        assert_eq!(center - col1, col2 - center);
+        // Col 1 and Col 2 must have identical padding from panel outer borders
+        assert_eq!(col1 - panel_x, (panel_x + panel_w) - col2);
+    }
+
+    #[test]
+    fn hud_geometry_series_banner_is_above_panel() {
+        let panel_y = 75.0;
+        let game_y = 18.0;
+        let pip_y = 36.0;
+        let banner_y = 56.0;
+
+        assert!(game_y < pip_y, "Game label must sit above pips");
+        assert!(pip_y < banner_y, "Pips must sit above series winner banner");
+        assert!(
+            banner_y < panel_y,
+            "Series winner banner must sit completely outside and above the center panel (y = 75.0)"
+        );
+    }
+
+    #[test]
+    fn series_pips_do_not_collide_at_center() {
+        let center_x = 200.0;
+        let pip_gap = 18.0;
+        let pip_r = 5.0;
+        let total_pips = crate::versus::SERIES_GAMES;
+
+        // Innermost pips (index 0)
+        let p1_inner_cx = center_x - 24.0;
+        let p2_inner_cx = center_x + 24.0;
+
+        // The gap between innermost pip edges must be strictly positive
+        let clearance = (p2_inner_cx - pip_r) - (p1_inner_cx + pip_r);
+        assert!(clearance >= 30.0, "Pips must have clear center clearance without overlapping");
+
+        // Outermost pips (index 4)
+        let p1_outer_cx = center_x - 24.0 - (total_pips - 1) as f32 * pip_gap;
+        let p2_outer_cx = center_x + 24.0 + (total_pips - 1) as f32 * pip_gap;
+        assert!(p1_outer_cx < p1_inner_cx);
+        assert!(p2_outer_cx > p2_inner_cx);
     }
 }

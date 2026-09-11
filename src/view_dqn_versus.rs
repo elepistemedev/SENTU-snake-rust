@@ -15,7 +15,7 @@ use macroquad::prelude::*;
 
 use crate::dqn::DQNAgent;
 use crate::nn::Net;
-use crate::versus::{VersusMatch, Winner};
+use crate::versus::{BestOfSeries, VersusMatch, Winner};
 use crate::viz_vs::VsFlavor;
 
 /// Accent color for player 1 (the champion) — matches the GA arena's green.
@@ -77,13 +77,16 @@ pub struct DqnVersusView {
     inner: DqnVersusInner,
 }
 
+/// Type alias for the DQN series match builder closure.
+type DqnSeries = BestOfSeries<Box<dyn FnMut() -> VersusMatch>>;
+
 enum DqnVersusInner {
     /// No champion: message state. The shell shows the message and owns `Esc`.
     NeedsChampion,
-    /// A running/finished [`VersusMatch`]; `live_is_fresh` records whether
+    /// A running/finished [`BestOfSeries`]; `live_is_fresh` records whether
     /// player 2 is the fresh greedy fallback (for labeling).
-    Match {
-        match_: VersusMatch,
+    Series {
+        series: DqnSeries,
         live_is_fresh: bool,
     },
 }
@@ -114,26 +117,35 @@ fn dqn_flavor(live_is_fresh: bool) -> VsFlavor {
 }
 
 impl DqnVersusView {
-    /// Compose a fresh match from what the shell has on hand: the DQN champion
+    /// Compose a fresh series from what the shell has on hand: the DQN champion
     /// (`None` when nothing was recorded/persisted yet) and the live current
     /// policy from a paused trainer (`None` → fresh greedy fallback, labeled
-    /// "CURRENT (fresh)"). Every construction is a fresh arena state.
+    /// "CURRENT (fresh)"). Every game in the 5-game series is built fresh.
     pub fn new(champion: Option<Net>, live: Option<Net>) -> Self {
         match plan_dqn_versus(champion.as_ref(), live.as_ref()) {
             DqnVersusPlayers::MissingChampion => Self {
                 inner: DqnVersusInner::NeedsChampion,
             },
-            DqnVersusPlayers::ChampionVsLive { champion, live } => Self {
-                inner: DqnVersusInner::Match {
-                    match_: VersusMatch::new_relative(champion, live, dqn_flavor(false)),
-                    live_is_fresh: false,
-                },
-            },
-            DqnVersusPlayers::ChampionVsFresh { champion } => {
-                let fresh_net = DQNAgent::new().q_network;
+            DqnVersusPlayers::ChampionVsLive { champion, live } => {
+                let flavor = dqn_flavor(false);
+                let builder: Box<dyn FnMut() -> VersusMatch> =
+                    Box::new(move || VersusMatch::new_relative(champion.clone(), live.clone(), flavor));
                 Self {
-                    inner: DqnVersusInner::Match {
-                        match_: VersusMatch::new_relative(champion, fresh_net, dqn_flavor(true)),
+                    inner: DqnVersusInner::Series {
+                        series: BestOfSeries::new(builder),
+                        live_is_fresh: false,
+                    },
+                }
+            }
+            DqnVersusPlayers::ChampionVsFresh { champion } => {
+                let flavor = dqn_flavor(true);
+                let builder: Box<dyn FnMut() -> VersusMatch> = Box::new(move || {
+                    let fresh_net = DQNAgent::new().q_network;
+                    VersusMatch::new_relative(champion.clone(), fresh_net, flavor)
+                });
+                Self {
+                    inner: DqnVersusInner::Series {
+                        series: BestOfSeries::new(builder),
                         live_is_fresh: true,
                     },
                 }
@@ -147,7 +159,7 @@ impl DqnVersusView {
     pub fn message(&self) -> Option<&'static str> {
         match &self.inner {
             DqnVersusInner::NeedsChampion => Some(CHAMPION_MISSING_MESSAGE),
-            DqnVersusInner::Match { .. } => None,
+            DqnVersusInner::Series { .. } => None,
         }
     }
 
@@ -155,61 +167,48 @@ impl DqnVersusView {
     pub fn live_is_fresh(&self) -> bool {
         match &self.inner {
             DqnVersusInner::NeedsChampion => false,
-            DqnVersusInner::Match { live_is_fresh, .. } => *live_is_fresh,
+            DqnVersusInner::Series { live_is_fresh, .. } => *live_is_fresh,
         }
     }
 
-    /// Advance the match one tick (each player moves at most once). No-op in
-    /// the message state and once the match is finished.
+    /// Advance the series one tick. No-op in the message state and once the
+    /// series is over.
     pub fn tick(&mut self) {
-        if let DqnVersusInner::Match { match_, .. } = &mut self.inner {
-            match_.tick();
+        if let DqnVersusInner::Series { series, .. } = &mut self.inner {
+            series.tick();
         }
     }
 
-    /// True once both games have ended (message state is never finished).
+    /// True once the whole 5-game series has ended (message state is never
+    /// finished).
     pub fn is_finished(&self) -> bool {
         match &self.inner {
             DqnVersusInner::NeedsChampion => false,
-            DqnVersusInner::Match { match_, .. } => match_.is_finished(),
+            DqnVersusInner::Series { series, .. } => series.is_series_over(),
         }
     }
 
-    /// The resolved winner, or `None` while running (or in the message state).
+    /// The resolved series winner, or `None` while running (or in the message
+    /// state).
     pub fn winner(&self) -> Option<Winner> {
         match &self.inner {
             DqnVersusInner::NeedsChampion => None,
-            DqnVersusInner::Match { match_, .. } => match_.winner(),
+            DqnVersusInner::Series { series, .. } => series.series_winner(),
         }
     }
 
-    /// Draw the arena (via the shared versus renderer) or, in the message
-    /// state, the "train DQN first" notice with a menu hint.
+    /// Draw the arena with the series HUD, or the "train DQN first" notice.
     pub fn draw(&self) {
         match &self.inner {
             DqnVersusInner::NeedsChampion => {
-                clear_background(BLACK);
-                let (w, h) = (screen_width(), screen_height());
-                let msg = CHAMPION_MISSING_MESSAGE;
-                let msg_dims = measure_text(msg, None, 28, 1.0);
-                draw_text(
-                    msg,
-                    (w - msg_dims.width) * 0.5,
-                    h * 0.5 - 10.0,
-                    28.0,
-                    YELLOW,
-                );
-                let hint = "[ESC] Menu";
-                let hint_dims = measure_text(hint, None, 22, 1.0);
-                draw_text(
-                    hint,
-                    (w - hint_dims.width) * 0.5,
-                    h * 0.5 + 30.0,
-                    22.0,
-                    WHITE,
+                crate::ui_kit::draw_missing_champion_notice(
+                    screen_width(),
+                    screen_height(),
+                    CHAMPION_MISSING_MESSAGE,
+                    "[ESC] Menu",
                 );
             }
-            DqnVersusInner::Match { match_, .. } => match_.draw(),
+            DqnVersusInner::Series { series, .. } => series.draw(),
         }
     }
 }

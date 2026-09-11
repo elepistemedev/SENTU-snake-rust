@@ -18,7 +18,7 @@ use macroquad::prelude::*;
 
 use crate::nn::Net;
 use crate::sim::{load_ga_champions, GaChampions};
-use crate::versus::{VersusMatch, Winner};
+use crate::versus::{BestOfSeries, VersusMatch, Winner};
 use crate::viz_vs::VsFlavor;
 
 /// Message shown when no best-ever GA champion exists anywhere (no
@@ -63,11 +63,14 @@ pub struct GaVersusView {
     inner: GaVersusInner,
 }
 
+/// Type alias for the GA series match builder closure.
+type GaSeries = BestOfSeries<Box<dyn FnMut() -> VersusMatch>>;
+
 enum GaVersusInner {
     /// No champion: message state. The shell shows the message and owns `Esc`.
     NeedsChampions,
-    /// A running/finished [`VersusMatch`] between the loaded champions.
-    Match(VersusMatch),
+    /// A running/finished [`BestOfSeries`] between the loaded champions.
+    Series(GaSeries),
 }
 
 impl GaVersusView {
@@ -88,13 +91,17 @@ impl GaVersusView {
             GaVersusPlayers::Missing => Self {
                 inner: GaVersusInner::NeedsChampions,
             },
-            GaVersusPlayers::Match { best, second_best } => Self {
-                inner: GaVersusInner::Match(VersusMatch::new(
-                    best,
-                    second_best,
-                    VsFlavor::ga_default(record),
-                )),
-            },
+            GaVersusPlayers::Match { best, second_best } => {
+                let flavor = VsFlavor::ga_default(record);
+                let builder: Box<dyn FnMut() -> VersusMatch> = {
+                    let best = best;
+                    let second_best = second_best;
+                    Box::new(move || VersusMatch::new(best.clone(), second_best.clone(), flavor))
+                };
+                Self {
+                    inner: GaVersusInner::Series(BestOfSeries::new(builder)),
+                }
+            }
         }
     }
 
@@ -104,61 +111,50 @@ impl GaVersusView {
     pub fn message(&self) -> Option<&'static str> {
         match &self.inner {
             GaVersusInner::NeedsChampions => Some(GA_CHAMPIONS_MISSING_MESSAGE),
-            GaVersusInner::Match(_) => None,
+            GaVersusInner::Series(_) => None,
         }
     }
 
-    /// Advance the match one tick (each player moves at most once). No-op in the
-    /// message state and once the match is finished.
+    /// Advance the series one tick. No-op in the message state and once the
+    /// series is over.
     pub fn tick(&mut self) {
-        if let GaVersusInner::Match(match_) = &mut self.inner {
-            match_.tick();
+        if let GaVersusInner::Series(series) = &mut self.inner {
+            series.tick();
         }
     }
 
-    /// True once both games have ended (message state is never finished).
+    /// True once the whole 5-game series has ended (message state is never
+    /// finished).
     pub fn is_finished(&self) -> bool {
         match &self.inner {
             GaVersusInner::NeedsChampions => false,
-            GaVersusInner::Match(match_) => match_.is_finished(),
+            GaVersusInner::Series(series) => series.is_series_over(),
         }
     }
 
-    /// The resolved winner, or `None` while running (or in the message state).
+    /// The resolved series winner, or `None` while running (or in the message
+    /// state).
     pub fn winner(&self) -> Option<Winner> {
         match &self.inner {
             GaVersusInner::NeedsChampions => None,
-            GaVersusInner::Match(match_) => match_.winner(),
+            GaVersusInner::Series(series) => series.series_winner(),
         }
     }
 
-    /// Draw the arena (via the shared versus renderer, GA-default flavor) or, in
-    /// the message state, the "train GA first" notice with a menu hint.
+    /// Draw the arena with the series HUD, or the "train GA first" notice.
     pub fn draw(&self) {
         match &self.inner {
             GaVersusInner::NeedsChampions => {
-                clear_background(BLACK);
-                let (w, h) = (screen_width(), screen_height());
-                let msg = GA_CHAMPIONS_MISSING_MESSAGE;
-                let msg_dims = measure_text(msg, None, 28, 1.0);
-                draw_text(
-                    msg,
-                    (w - msg_dims.width) * 0.5,
-                    h * 0.5 - 10.0,
-                    28.0,
-                    YELLOW,
-                );
-                let hint = "[ESC] Menu";
-                let hint_dims = measure_text(hint, None, 22, 1.0);
-                draw_text(
-                    hint,
-                    (w - hint_dims.width) * 0.5,
-                    h * 0.5 + 30.0,
-                    22.0,
-                    WHITE,
+                crate::ui_kit::draw_missing_champion_notice(
+                    screen_width(),
+                    screen_height(),
+                    GA_CHAMPIONS_MISSING_MESSAGE,
+                    "[ESC] Menu",
                 );
             }
-            GaVersusInner::Match(match_) => match_.draw(),
+            GaVersusInner::Series(series) => {
+                series.draw();
+            }
         }
     }
 }

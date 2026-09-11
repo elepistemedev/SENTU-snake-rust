@@ -18,7 +18,7 @@ use macroquad::prelude::*;
 use crate::champion_store;
 use crate::nn::Net;
 use crate::pop::Population;
-use crate::versus::{VersusMatch, Winner};
+use crate::versus::{BestOfSeries, VersusMatch, Winner};
 use crate::view_dqn_train::DQN_CHAMPION_FILE;
 use crate::viz_vs::VsFlavor;
 
@@ -100,6 +100,9 @@ fn cross_flavor() -> VsFlavor {
     }
 }
 
+/// Type alias for the cross series match builder closure.
+type CrossSeries = BestOfSeries<Box<dyn FnMut() -> VersusMatch>>;
+
 /// The renderable DQN-vs-GA cross-match view. See module docs.
 pub struct CrossMatchView {
     inner: CrossInner,
@@ -109,14 +112,14 @@ enum CrossInner {
     /// A champion is missing: message state. The shell shows the message and
     /// owns `Esc`.
     NeedsChampions { message: &'static str },
-    /// A running/finished [`VersusMatch`] between both champions.
-    Match(VersusMatch),
+    /// A running/finished [`BestOfSeries`] between both champions.
+    Series(CrossSeries),
 }
 
 impl CrossMatchView {
-    /// Build a fresh cross match from the champions currently on disk: GA from
-    /// `best_snake.json`, DQN from `dqn_champion.json`. Every construction is a
-    /// fresh arena state (spec: cross-match-from-menu constructs fresh).
+    /// Build a fresh cross series from the champions currently on disk: GA from
+    /// `best_snake.json`, DQN from `dqn_champion.json`. Every game in the 5-game
+    /// series is built fresh from the loaded nets.
     pub fn new() -> Self {
         let ga = Population::load_best_net();
         let dqn = champion_store::load(DQN_CHAMPION_FILE);
@@ -134,8 +137,11 @@ impl CrossMatchView {
         let dqn = dqn.filter(|n| n.matches_arch(&crate::dqn::DQN_ARCH));
         let plan = plan_cross_match(ga, dqn);
         if let CrossMatchPlayers::Ready { ga, dqn } = plan {
+            let flavor = cross_flavor();
+            let builder: Box<dyn FnMut() -> VersusMatch> =
+                Box::new(move || VersusMatch::new_cross(ga.clone(), dqn.clone(), flavor));
             return Self {
-                inner: CrossInner::Match(VersusMatch::new_cross(ga, dqn, cross_flavor())),
+                inner: CrossInner::Series(BestOfSeries::new(builder)),
             };
         }
         // A non-Ready plan is exactly "some side is missing", which always
@@ -153,60 +159,48 @@ impl CrossMatchView {
     pub fn message(&self) -> Option<&'static str> {
         match &self.inner {
             CrossInner::NeedsChampions { message } => Some(message),
-            CrossInner::Match(_) => None,
+            CrossInner::Series(_) => None,
         }
     }
 
-    /// Advance the match one tick (each player moves at most once). No-op in the
-    /// message state and once the match is finished.
+    /// Advance the series one tick. No-op in the message state and once the
+    /// series is over.
     pub fn tick(&mut self) {
-        if let CrossInner::Match(match_) = &mut self.inner {
-            match_.tick();
+        if let CrossInner::Series(series) = &mut self.inner {
+            series.tick();
         }
     }
 
-    /// True once both games have ended (message state is never finished).
+    /// True once the whole 5-game series has ended (message state is never
+    /// finished).
     pub fn is_finished(&self) -> bool {
         match &self.inner {
             CrossInner::NeedsChampions { .. } => false,
-            CrossInner::Match(match_) => match_.is_finished(),
+            CrossInner::Series(series) => series.is_series_over(),
         }
     }
 
-    /// The resolved winner, or `None` while running (or in the message state).
+    /// The resolved series winner, or `None` while running (or in the message
+    /// state).
     pub fn winner(&self) -> Option<Winner> {
         match &self.inner {
             CrossInner::NeedsChampions { .. } => None,
-            CrossInner::Match(match_) => match_.winner(),
+            CrossInner::Series(series) => series.series_winner(),
         }
     }
 
-    /// Draw the arena (via the shared versus renderer, cross flavor) or, in the
-    /// message state, the missing-champion notice naming the missing side.
+    /// Draw the arena with the series HUD, or the missing-champion notice.
     pub fn draw(&self) {
         match &self.inner {
             CrossInner::NeedsChampions { message } => {
-                clear_background(BLACK);
-                let (w, h) = (screen_width(), screen_height());
-                let msg_dims = measure_text(message, None, 28, 1.0);
-                draw_text(
+                crate::ui_kit::draw_missing_champion_notice(
+                    screen_width(),
+                    screen_height(),
                     message,
-                    (w - msg_dims.width) * 0.5,
-                    h * 0.5 - 10.0,
-                    28.0,
-                    YELLOW,
-                );
-                let hint = "[ESC] Menu";
-                let hint_dims = measure_text(hint, None, 22, 1.0);
-                draw_text(
-                    hint,
-                    (w - hint_dims.width) * 0.5,
-                    h * 0.5 + 30.0,
-                    22.0,
-                    WHITE,
+                    "[ESC] Menu",
                 );
             }
-            CrossInner::Match(match_) => match_.draw(),
+            CrossInner::Series(series) => series.draw(),
         }
     }
 }
