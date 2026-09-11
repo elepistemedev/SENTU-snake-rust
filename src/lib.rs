@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod app;
 pub mod champion_store;
 pub mod configs;
@@ -23,5 +24,7 @@ pub mod viz;
 pub mod viz_advanced;
 pub mod viz_vs;
 
+pub use agent::*;
 pub use configs::*;
 pub use utils::*;
+

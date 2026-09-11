@@ -9,6 +9,7 @@
 //! it holds the active match, tracks wins per side, and advances automatically
 //! between games after a short frame-based pause (~2 s at 60 fps).
 
+use crate::agent::{Agent, DqnPolicyAgent, GaAgent};
 use crate::game::Game;
 use crate::nn::Net;
 
@@ -71,29 +72,37 @@ pub struct VersusMatch {
 }
 
 impl VersusMatch {
+    /// Build a fresh match pitting two arbitrary agents against each other.
+    pub fn from_agents(agent_left: Box<dyn Agent>, agent_right: Box<dyn Agent>) -> Self {
+        Self {
+            game1: Game::with_agent(agent_left),
+            game2: Game::with_agent(agent_right),
+        }
+    }
+
     /// Build a fresh match pitting `net_left` (player 1) against `net_right`
     /// (player 2). Every construction is a fresh arena state.
     pub fn new(net_left: Net, net_right: Net) -> Self {
-        Self {
-            game1: Game::with_brain(&net_left),
-            game2: Game::with_brain(&net_right),
-        }
+        Self::from_agents(
+            Box::new(GaAgent::new(net_left)),
+            Box::new(GaAgent::new(net_right)),
+        )
     }
 
     /// DQN-vs-DQN: both players use relative brains (9-input, 3-output).
     pub fn new_relative(net_left: Net, net_right: Net) -> Self {
-        Self {
-            game1: Game::with_relative_brain(&net_left),
-            game2: Game::with_relative_brain(&net_right),
-        }
+        Self::from_agents(
+            Box::new(DqnPolicyAgent::new(net_left)),
+            Box::new(DqnPolicyAgent::new(net_right)),
+        )
     }
 
     /// Cross GA-vs-DQN: GA left (absolute brain), DQN right (relative brain).
     pub fn new_cross(ga_net: Net, dqn_net: Net) -> Self {
-        Self {
-            game1: Game::with_brain(&ga_net),
-            game2: Game::with_relative_brain(&dqn_net),
-        }
+        Self::from_agents(
+            Box::new(GaAgent::new(ga_net)),
+            Box::new(DqnPolicyAgent::new(dqn_net)),
+        )
     }
 
     /// Access player 1's game.
@@ -478,5 +487,19 @@ mod tests {
         assert_eq!(series.series_info().games_played, 0);
         assert_eq!(series.series_info().left_wins, 0);
         assert_eq!(series.series_info().right_wins, 0);
+    }
+
+    #[test]
+    fn versus_match_from_arbitrary_agents_runs_and_terminates() {
+        let ga = Box::new(GaAgent::new(Net::new()));
+        let dqn = Box::new(DqnPolicyAgent::new(Net::new_with_sizes(&[9, 32, 3])));
+        let mut m = VersusMatch::from_agents(ga, dqn);
+        let mut ticks = 0;
+        while !m.is_finished() && ticks < 10_000 {
+            m.tick();
+            ticks += 1;
+        }
+        assert!(m.is_finished());
+        assert!(m.winner().is_some());
     }
 }
