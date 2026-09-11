@@ -99,6 +99,7 @@ fn cross_flavor() -> VsFlavor {
         eliminated2_label: "DQN eliminado!",
         back_label: "[ESC] Menú",
         controls_label: "[SPACE] Vel  [ESC] Menú",
+        arena_title: "DQN VS ALGORITMO GENÉTICO",
     }
 }
 
@@ -219,7 +220,7 @@ impl CrossMatchView {
 #[cfg(test)]
 mod tests {
     use super::{
-        cross_missing_message, plan_cross_match, CrossMatchPlayers, CrossMatchView,
+        cross_flavor, cross_missing_message, plan_cross_match, CrossMatchPlayers, CrossMatchView,
         BOTH_MISSING_MESSAGE, DQN_MISSING_MESSAGE, GA_MISSING_MESSAGE,
     };
     use crate::nn::Net;
@@ -345,5 +346,11 @@ mod tests {
             Some(DQN_MISSING_MESSAGE),
             "old-arch DQN champion must be treated as missing"
         );
+    }
+
+    #[test]
+    fn cross_flavor_has_expanded_arena_title() {
+        let flavor = cross_flavor();
+        assert_eq!(flavor.arena_title, "DQN VS ALGORITMO GENÉTICO");
     }
 }
