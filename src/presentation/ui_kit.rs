@@ -76,7 +76,7 @@ pub fn draw_brand_watermark() {
 // ---------------------------------------------------------------------------
 
 /// Embedded TTF font bytes supporting full Unicode block elements, arrows, and accented characters.
-pub const EMBEDDED_FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/font.ttf");
+pub const EMBEDDED_FONT_BYTES: &[u8] = include_bytes!("../../assets/fonts/font.ttf");
 
 /// Initialize and set the global default font for Macroquad.
 /// Replaces the default ASCII-only ProggyClean font with our embedded Unicode monospace font.
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_embedded_font_has_required_glyphs() {
-        let bytes = include_bytes!("../assets/fonts/font.ttf");
+        let bytes = include_bytes!("../../assets/fonts/font.ttf");
         let font = fontdue::Font::from_bytes(
             bytes.as_slice(),
             fontdue::FontSettings::default(),
