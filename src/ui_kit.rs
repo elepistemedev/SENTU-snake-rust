@@ -59,6 +59,17 @@ pub fn draw_centered_text(text: &str, cx: f32, y: f32, font_size: f32, color: Co
     draw_text(text, cx - dims.width * 0.5, y, font_size, color);
 }
 
+/// Format a terminal box title with brackets if not already bracketed.
+/// Avoids heap allocation when `title` already starts with `[`.
+#[inline]
+pub fn format_box_title<'a>(title: &'a str) -> std::borrow::Cow<'a, str> {
+    if title.starts_with('[') {
+        std::borrow::Cow::Borrowed(title)
+    } else {
+        std::borrow::Cow::Owned(format!("[ {} ]", title))
+    }
+}
+
 /// Draw a retro-terminal panel box with corner accent ticks, background, border,
 /// and an optional bracketed title.
 pub fn draw_terminal_box(x: f32, y: f32, w: f32, h: f32, title: &str, focused: bool) {
@@ -86,11 +97,7 @@ pub fn draw_terminal_box(x: f32, y: f32, w: f32, h: f32, title: &str, focused: b
     }
 
     if !title.is_empty() {
-        let formatted = if title.starts_with('[') {
-            title.to_string()
-        } else {
-            format!("[ {} ]", title)
-        };
+        let formatted = format_box_title(title);
         draw_text(&formatted, x + 16.0, y + 24.0, 20.0, title_color);
     }
 }
@@ -298,5 +305,22 @@ mod tests {
         assert_eq!(ACCENT_GREEN, Color::new(0.30, 0.90, 0.40, 1.0));
         assert_eq!(ACCENT_RED, Color::new(0.95, 0.30, 0.30, 1.0));
         assert_eq!(TEXT_MUTED, Color::new(0.60, 0.65, 0.70, 1.0));
+    }
+
+    #[test]
+    fn test_format_box_title_borrowed_vs_owned() {
+        use std::borrow::Cow;
+
+        let bracketed = "[ SYSTEM ]";
+        match format_box_title(bracketed) {
+            Cow::Borrowed(s) => assert_eq!(s, "[ SYSTEM ]"),
+            Cow::Owned(_) => panic!("Expected Cow::Borrowed for bracketed title"),
+        }
+
+        let unbracketed = "TITLE";
+        match format_box_title(unbracketed) {
+            Cow::Owned(s) => assert_eq!(s, "[ TITLE ]"),
+            Cow::Borrowed(_) => panic!("Expected Cow::Owned for unbracketed title"),
+        }
     }
 }

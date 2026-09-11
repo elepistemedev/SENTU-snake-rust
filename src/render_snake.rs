@@ -311,57 +311,45 @@ pub fn draw_snake_segment(
             let neck_w = tile_size * 0.74;
             let half_neck = neck_w * 0.5;
 
-            // Connect neck flush to the edge where body[1] is located (if any)
-            if let Some(nd) = neck_dir {
-                match nd {
-                    FourDirs::Left => {
-                        draw_rectangle(x, cy - half_neck, cx - x, neck_w, color);
-                        if let Some(ol) = outline {
-                            draw_line(x, cy - half_neck, cx, cy - half_neck, contour_w, ol);
-                            draw_line(x, cy + half_neck, cx, cy + half_neck, contour_w, ol);
-                        }
-                    }
-                    FourDirs::Right => {
-                        draw_rectangle(cx, cy - half_neck, x + tile_size - cx, neck_w, color);
-                        if let Some(ol) = outline {
-                            draw_line(cx, cy - half_neck, x + tile_size, cy - half_neck, contour_w, ol);
-                            draw_line(cx, cy + half_neck, x + tile_size, cy + half_neck, contour_w, ol);
-                        }
-                    }
-                    FourDirs::Top => {
-                        draw_rectangle(cx - half_neck, y, neck_w, cy - y, color);
-                        if let Some(ol) = outline {
-                            draw_line(cx - half_neck, y, cx - half_neck, cy, contour_w, ol);
-                            draw_line(cx + half_neck, y, cx + half_neck, cy, contour_w, ol);
-                        }
-                    }
-                    FourDirs::Bottom => {
-                        draw_rectangle(cx - half_neck, cy, neck_w, y + tile_size - cy, color);
-                        if let Some(ol) = outline {
-                            draw_line(cx - half_neck, cy, cx - half_neck, y + tile_size, contour_w, ol);
-                            draw_line(cx + half_neck, cy, cx + half_neck, y + tile_size, contour_w, ol);
-                        }
-                    }
-                }
-            }
-
-            // Head rounded base
+            // 1. Draw outline for head and neck
             if let Some(ol) = outline {
                 draw_circle(cx, cy, half + 1.5, ol);
-            }
-            draw_circle(cx, cy, half, color);
-
-            // Re-fill neck junction to seamlessly weld circle and neck without inner contour seam
-            if let Some(nd) = neck_dir {
-                match nd {
-                    FourDirs::Left => draw_rectangle(x + 1.0, cy - half_neck + 1.0, cx - x, neck_w - 2.0, color),
-                    FourDirs::Right => draw_rectangle(cx, cy - half_neck + 1.0, x + tile_size - cx - 1.0, neck_w - 2.0, color),
-                    FourDirs::Top => draw_rectangle(cx - half_neck + 1.0, y + 1.0, neck_w - 2.0, cy - y, color),
-                    FourDirs::Bottom => draw_rectangle(cx - half_neck + 1.0, cy, neck_w - 2.0, y + tile_size - cy - 1.0, color),
+                if let Some(nd) = neck_dir {
+                    match nd {
+                        FourDirs::Left => {
+                            draw_line(x - 0.5, cy - half_neck, cx, cy - half_neck, contour_w, ol);
+                            draw_line(x - 0.5, cy + half_neck, cx, cy + half_neck, contour_w, ol);
+                        }
+                        FourDirs::Right => {
+                            draw_line(cx, cy - half_neck, x + tile_size + 0.5, cy - half_neck, contour_w, ol);
+                            draw_line(cx, cy + half_neck, x + tile_size + 0.5, cy + half_neck, contour_w, ol);
+                        }
+                        FourDirs::Top => {
+                            draw_line(cx - half_neck, y - 0.5, cx - half_neck, cy, contour_w, ol);
+                            draw_line(cx + half_neck, y - 0.5, cx + half_neck, cy, contour_w, ol);
+                        }
+                        FourDirs::Bottom => {
+                            draw_line(cx - half_neck, cy, cx - half_neck, y + tile_size + 0.5, contour_w, ol);
+                            draw_line(cx + half_neck, cy, cx + half_neck, y + tile_size + 0.5, contour_w, ol);
+                        }
+                    }
                 }
             }
 
-            // Directional eyes
+            // 2. Draw neck fill flush to adjacent edge and into the head center (covers any inner outline cut)
+            if let Some(nd) = neck_dir {
+                match nd {
+                    FourDirs::Left => draw_rectangle(x - 0.5, cy - half_neck, cx - x + 0.5, neck_w, color),
+                    FourDirs::Right => draw_rectangle(cx, cy - half_neck, x + tile_size - cx + 0.5, neck_w, color),
+                    FourDirs::Top => draw_rectangle(cx - half_neck, y - 0.5, neck_w, cy - y + 0.5, color),
+                    FourDirs::Bottom => draw_rectangle(cx - half_neck, cy, neck_w, y + tile_size - cy + 0.5, color),
+                }
+            }
+
+            // 3. Draw head circular body (fills head and seamlessly welds with neck)
+            draw_circle(cx, cy, half, color);
+
+            // 4. Directional eyes
             let (e1, e2) = compute_eye_offsets(heading, size);
             for eye in [e1, e2] {
                 draw_circle(hx + eye.center_x, hy + eye.center_y, eye.radius, WHITE);
@@ -378,53 +366,47 @@ pub fn draw_snake_segment(
             let t = tile_size * 0.74 * (1.0 + bulge_scale);
             let half_t = t * 0.5;
 
-            // Connects to the opposite edge and ends with a rounded cap at (cx, cy)
-            match tail_dir {
-                FourDirs::Right => {
-                    draw_rectangle(x, cy - half_t, cx - x, t, color);
-                    if let Some(ol) = outline {
-                        draw_line(x, cy - half_t, cx, cy - half_t, contour_w, ol);
-                        draw_line(x, cy + half_t, cx, cy + half_t, contour_w, ol);
-                        draw_circle(cx, cy, half_t + 1.0, ol);
+            // 1. Draw outline first: cap circle and side lines
+            if let Some(ol) = outline {
+                draw_circle(cx, cy, half_t + 1.0, ol);
+                match tail_dir {
+                    FourDirs::Right => {
+                        draw_line(x - 0.5, cy - half_t, cx, cy - half_t, contour_w, ol);
+                        draw_line(x - 0.5, cy + half_t, cx, cy + half_t, contour_w, ol);
                     }
-                    draw_circle(cx, cy, half_t, color);
-                }
-                FourDirs::Left => {
-                    draw_rectangle(cx, cy - half_t, x + tile_size - cx, t, color);
-                    if let Some(ol) = outline {
-                        draw_line(cx, cy - half_t, x + tile_size, cy - half_t, contour_w, ol);
-                        draw_line(cx, cy + half_t, x + tile_size, cy + half_t, contour_w, ol);
-                        draw_circle(cx, cy, half_t + 1.0, ol);
+                    FourDirs::Left => {
+                        draw_line(cx, cy - half_t, x + tile_size + 0.5, cy - half_t, contour_w, ol);
+                        draw_line(cx, cy + half_t, x + tile_size + 0.5, cy + half_t, contour_w, ol);
                     }
-                    draw_circle(cx, cy, half_t, color);
-                }
-                FourDirs::Bottom => {
-                    draw_rectangle(cx - half_t, y, t, cy - y, color);
-                    if let Some(ol) = outline {
-                        draw_line(cx - half_t, y, cx - half_t, cy, contour_w, ol);
-                        draw_line(cx + half_t, y, cx + half_t, cy, contour_w, ol);
-                        draw_circle(cx, cy, half_t + 1.0, ol);
+                    FourDirs::Bottom => {
+                        draw_line(cx - half_t, y - 0.5, cx - half_t, cy, contour_w, ol);
+                        draw_line(cx + half_t, y - 0.5, cx + half_t, cy, contour_w, ol);
                     }
-                    draw_circle(cx, cy, half_t, color);
-                }
-                FourDirs::Top => {
-                    draw_rectangle(cx - half_t, cy, t, y + tile_size - cy, color);
-                    if let Some(ol) = outline {
-                        draw_line(cx - half_t, cy, cx - half_t, y + tile_size, contour_w, ol);
-                        draw_line(cx + half_t, cy, cx + half_t, y + tile_size, contour_w, ol);
-                        draw_circle(cx, cy, half_t + 1.0, ol);
+                    FourDirs::Top => {
+                        draw_line(cx - half_t, cy, cx - half_t, y + tile_size + 0.5, contour_w, ol);
+                        draw_line(cx + half_t, cy, cx + half_t, y + tile_size + 0.5, contour_w, ol);
                     }
-                    draw_circle(cx, cy, half_t, color);
                 }
             }
+
+            // 2. Draw body rectangle fill (covers inner half of cap outline)
+            match tail_dir {
+                FourDirs::Right => draw_rectangle(x - 0.5, cy - half_t, cx - x + 0.5, t, color),
+                FourDirs::Left => draw_rectangle(cx, cy - half_t, x + tile_size - cx + 0.5, t, color),
+                FourDirs::Bottom => draw_rectangle(cx - half_t, y - 0.5, t, cy - y + 0.5, color),
+                FourDirs::Top => draw_rectangle(cx - half_t, cy, t, y + tile_size - cy + 0.5, color),
+            }
+
+            // 3. Draw rounded cap fill
+            draw_circle(cx, cy, half_t, color);
         }
         SegmentKind::StraightHorizontal => {
             let t = tile_size * 0.74 * (1.0 + bulge_scale);
             let half_t = t * 0.5;
-            draw_rectangle(x, cy - half_t, tile_size, t, color);
+            draw_rectangle(x - 0.5, cy - half_t, tile_size + 1.0, t, color);
             if let Some(ol) = outline {
-                draw_line(x, cy - half_t, x + tile_size, cy - half_t, contour_w, ol);
-                draw_line(x, cy + half_t, x + tile_size, cy + half_t, contour_w, ol);
+                draw_line(x - 0.5, cy - half_t, x + tile_size + 0.5, cy - half_t, contour_w, ol);
+                draw_line(x - 0.5, cy + half_t, x + tile_size + 0.5, cy + half_t, contour_w, ol);
             }
             if bulge_scale > 0.0 {
                 draw_circle(cx, cy, half_t * 1.25, color);
@@ -434,10 +416,10 @@ pub fn draw_snake_segment(
         SegmentKind::StraightVertical => {
             let t = tile_size * 0.74 * (1.0 + bulge_scale);
             let half_t = t * 0.5;
-            draw_rectangle(cx - half_t, y, t, tile_size, color);
+            draw_rectangle(cx - half_t, y - 0.5, t, tile_size + 1.0, color);
             if let Some(ol) = outline {
-                draw_line(cx - half_t, y, cx - half_t, y + tile_size, contour_w, ol);
-                draw_line(cx + half_t, y, cx + half_t, y + tile_size, contour_w, ol);
+                draw_line(cx - half_t, y - 0.5, cx - half_t, y + tile_size + 0.5, contour_w, ol);
+                draw_line(cx + half_t, y - 0.5, cx + half_t, y + tile_size + 0.5, contour_w, ol);
             }
             if bulge_scale > 0.0 {
                 draw_circle(cx, cy, half_t * 1.25, color);

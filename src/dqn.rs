@@ -124,7 +124,7 @@ impl DQNAgent {
         if rng.gen::<f64>() < self.epsilon {
             rng.gen_range(0..DQN_OUTPUT_LAYER_SIZE)
         } else {
-            let q_values = self.q_network.predict(state).pop().unwrap();
+            let q_values = self.q_network.predict_linear_output(state).pop().unwrap();
             q_values
                 .iter()
                 .enumerate()
@@ -148,8 +148,8 @@ impl DQNAgent {
         let batch_len = batch.len();
         let mut squared_error_sum = 0.0f64;
         for exp in batch {
-            let current_q = self.q_network.predict(&exp.state).pop().unwrap();
-            let next_q = self.target_network.predict(&exp.next_state).pop().unwrap();
+            let current_q = self.q_network.predict_linear_output(&exp.state).pop().unwrap();
+            let next_q = self.target_network.predict_linear_output(&exp.next_state).pop().unwrap();
             
             let max_next_q = next_q.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
             let target_q = if exp.done {
@@ -183,16 +183,14 @@ impl DQNAgent {
     }
 
     fn update_weights(&mut self, state: &[f64], action: usize, error: f64) {
-        // Full forward pass to get activations at each layer
-        let activations = self.q_network.predict(&state.to_vec());
+        // Full forward pass with linear output activation
+        let activations = self.q_network.predict_linear_output(&state.to_vec());
         // activations[0] = input (9), [1] = hidden (32), [2] = output (3)
 
         let output_layer_idx = self.q_network.layers.len() - 1;
 
-        // --- Output layer: gradient for the selected action ---
-        let out_val = activations[output_layer_idx + 1][action];
-        let sig_deriv_out = out_val * (1.0 - out_val);
-        let delta_out = error * sig_deriv_out;
+        // --- Output layer: linear activation derivative is 1.0 ---
+        let delta_out = error.clamp(-1.0, 1.0);
 
         let hidden_out = &activations[output_layer_idx]; // hidden activations
 
@@ -372,5 +370,23 @@ mod tests {
             let action = agent.select_action(&state);
             assert!(action < 3, "action must be inside 0..DQN_OUTPUT_LAYER_SIZE");
         }
+    }
+
+    #[test]
+    fn dqn_agent_q_values_can_predict_negative_values() {
+        let mut agent = DQNAgent::new();
+        let exp = Experience {
+            state: vec![0.5; 9],
+            action: 1,
+            reward: -1.0,
+            next_state: vec![0.5; 9],
+            done: true,
+        };
+        for _ in 0..100 {
+            agent.store_experience(exp.clone());
+            agent.train();
+        }
+        let q_vals = agent.q_network.predict_linear_output(&vec![0.5; 9]).pop().unwrap();
+        assert!(q_vals[1] < 0.0, "linear Q-network must be able to learn negative Q-values, got {}", q_vals[1]);
     }
 }
