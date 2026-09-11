@@ -162,14 +162,13 @@ impl Game {
 
         self.core.swallow.push_eating();
         self.core.body.push(Point::new(self.core.head.x, self.core.head.y));
-        self.core.food = self.core.get_random_empty_pos();
-        self.core.steps_without_food = 0;
+        self.core.respawn_food();
     }
 
     fn handle_step_limit(&mut self) {
         let limit = self.core.hunger_limit();
         if self.core.steps_without_food >= limit {
-            self.is_complete = true;
+            self.core.respawn_food();
         }
     }
 
@@ -305,32 +304,39 @@ mod tests {
     }
 
     #[test]
-    fn handle_step_limit_respects_dynamic_thresholds() {
+    fn handle_step_limit_respawns_food_and_resets_steps_without_killing_snake() {
         let dummy_net = Net::new();
         let mut game = Game::with_relative_brain(&dummy_net);
 
         // Body len = 1 (start): hunger limit is 100
         assert_eq!(game.core.hunger_limit(), 100);
+        let initial_food = game.core.food;
         game.core.steps_without_food = 99;
         game.handle_step_limit();
         assert!(!game.is_complete);
+        assert_eq!(game.core.steps_without_food, 99);
+        assert_eq!(game.core.food, initial_food);
 
         game.core.steps_without_food = 100;
         game.handle_step_limit();
-        assert!(game.is_complete);
+        // Snake must NOT die
+        assert!(!game.is_complete);
+        // Steps without food must reset to 0
+        assert_eq!(game.core.steps_without_food, 0);
 
         // Reset and test higher size (snake size = 25 -> limit is 300)
-        game.is_complete = false;
         game.core.body = vec![Point::new(0, 0); 25];
         assert_eq!(game.core.hunger_limit(), 300);
 
         game.core.steps_without_food = 299;
         game.handle_step_limit();
         assert!(!game.is_complete);
+        assert_eq!(game.core.steps_without_food, 299);
 
         game.core.steps_without_food = 300;
         game.handle_step_limit();
-        assert!(game.is_complete);
+        assert!(!game.is_complete);
+        assert_eq!(game.core.steps_without_food, 0);
     }
 
     #[test]

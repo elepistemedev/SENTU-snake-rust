@@ -60,15 +60,21 @@ pub fn run_headless_match(net_left: &Net, net_right: &Net, max_ticks: usize) -> 
 
     if game1.is_complete && game2.is_complete {
         Some(resolve_winner(game1.score(), game2.score()))
+    } else if max_ticks > 0 {
+        Some(resolve_winner(game1.score(), game2.score()))
     } else {
         None
     }
 }
 
+/// Maximum ticks allowed in an individual versus match before declaring timeout.
+pub const MATCH_MAX_TICKS: usize = 1_000;
+
 /// A versus match: two [`Game`]s with fixed brains stepped in lockstep.
 pub struct VersusMatch {
     game1: Game,
     game2: Game,
+    ticks: usize,
 }
 
 impl VersusMatch {
@@ -77,6 +83,7 @@ impl VersusMatch {
         Self {
             game1: Game::with_agent(agent_left),
             game2: Game::with_agent(agent_right),
+            ticks: 0,
         }
     }
 
@@ -122,8 +129,13 @@ impl VersusMatch {
         if self.is_finished() {
             return;
         }
+        self.ticks += 1;
         self.game1.update();
         self.game2.update();
+        if self.ticks >= MATCH_MAX_TICKS {
+            self.game1.is_complete = true;
+            self.game2.is_complete = true;
+        }
     }
 
     /// True once both games have ended; only then is a [`Winner`] final.
