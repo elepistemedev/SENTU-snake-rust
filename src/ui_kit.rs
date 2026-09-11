@@ -26,6 +26,58 @@ pub const ACCENT_RED: Color = Color::new(0.95, 0.30, 0.30, 1.0);
 pub const TEXT_MUTED: Color = Color::new(0.60, 0.65, 0.70, 1.0);
 
 // ---------------------------------------------------------------------------
+// Brand Watermark (ASCII Art)
+// ---------------------------------------------------------------------------
+
+pub const BRAND_WATERMARK_LINES: [&str; 2] = [
+    "  █▀ █▀▀ █▄░█ ▀█▀ █░█",
+    "  ▄█ ██▄ █░▀█ ░█░ █▄█",
+];
+
+pub const BRAND_WATERMARK_FONT_SIZE: f32 = 14.0;
+pub const BRAND_WATERMARK_LINE_HEIGHT: f32 = 14.0;
+pub const BRAND_WATERMARK_MARGIN_X: f32 = 16.0;
+pub const BRAND_WATERMARK_MARGIN_BOTTOM: f32 = 10.0;
+
+/// Calculate the (x, y) coordinates for line `line_idx` (0 or 1) of the brand watermark.
+#[inline]
+pub fn brand_watermark_pos(screen_h: f32, line_idx: usize) -> (f32, f32) {
+    let base_y = screen_h - BRAND_WATERMARK_MARGIN_BOTTOM;
+    let y = if line_idx == 0 {
+        base_y - BRAND_WATERMARK_LINE_HEIGHT
+    } else {
+        base_y
+    };
+    (BRAND_WATERMARK_MARGIN_X, y)
+}
+
+/// Draw the brand ASCII watermark at the bottom-left corner of the screen.
+pub fn draw_brand_watermark() {
+    let screen_h = screen_height();
+    let color = Color::new(ACCENT_CYAN.r, ACCENT_CYAN.g, ACCENT_CYAN.b, 0.80);
+    for (i, line) in BRAND_WATERMARK_LINES.iter().enumerate() {
+        let (x, y) = brand_watermark_pos(screen_h, i);
+        draw_text(line, x, y, BRAND_WATERMARK_FONT_SIZE, color);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Font Management
+// ---------------------------------------------------------------------------
+
+/// Embedded TTF font bytes supporting full Unicode block elements, arrows, and accented characters.
+pub const EMBEDDED_FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/font.ttf");
+
+/// Initialize and set the global default font for Macroquad.
+/// Replaces the default ASCII-only ProggyClean font with our embedded Unicode monospace font.
+pub fn init_default_font() -> Result<(), macroquad::Error> {
+    let font = macroquad::text::load_ttf_font_from_bytes(EMBEDDED_FONT_BYTES)?;
+    macroquad::text::set_default_font(font);
+    Ok(())
+}
+
+
+// ---------------------------------------------------------------------------
 // Pure Calculation Helpers
 // ---------------------------------------------------------------------------
 
@@ -323,4 +375,51 @@ mod tests {
             Cow::Borrowed(_) => panic!("Expected Cow::Owned for unbracketed title"),
         }
     }
+
+    #[test]
+    fn test_brand_watermark_lines_and_content() {
+        assert_eq!(BRAND_WATERMARK_LINES.len(), 2);
+        assert_eq!(BRAND_WATERMARK_LINES[0], "  █▀ █▀▀ █▄░█ ▀█▀ █░█");
+        assert_eq!(BRAND_WATERMARK_LINES[1], "  ▄█ ██▄ █░▀█ ░█░ █▄█");
+    }
+
+    #[test]
+    fn test_brand_watermark_positioning() {
+        let screen_h = 600.0;
+        let (x0, y0) = brand_watermark_pos(screen_h, 0);
+        let (x1, y1) = brand_watermark_pos(screen_h, 1);
+
+        assert_eq!(x0, BRAND_WATERMARK_MARGIN_X);
+        assert_eq!(x1, BRAND_WATERMARK_MARGIN_X);
+        assert!(y0 < y1, "Line 0 must be above Line 1");
+        assert_eq!(y1 - y0, BRAND_WATERMARK_LINE_HEIGHT);
+        assert_eq!(y1, screen_h - BRAND_WATERMARK_MARGIN_BOTTOM);
+    }
+
+    #[test]
+    fn test_embedded_font_has_required_glyphs() {
+        let bytes = include_bytes!("../assets/fonts/font.ttf");
+        let font = fontdue::Font::from_bytes(
+            bytes.as_slice(),
+            fontdue::FontSettings::default(),
+        ).expect("Font file must be valid TTF");
+
+        let required_chars = [
+            '█', '▀', '▄', '░', // ASCII art blocks
+            '▶', '◀', '↑', '↓', // UI indicators
+            'á', 'é', 'í', 'ó', 'ú', 'ñ', 'Á', 'É', 'Í', 'Ó', 'Ú', 'Ñ', // Spanish accents
+        ];
+
+        for &c in &required_chars {
+            let idx = font.lookup_glyph_index(c);
+            assert!(
+                idx > 0,
+                "Font is missing glyph for character '{}' (U+{:04X})",
+                c,
+                c as u32
+            );
+        }
+    }
 }
+
+

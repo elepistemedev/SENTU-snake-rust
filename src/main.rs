@@ -21,6 +21,9 @@ fn window_conf() -> macroquad::window::Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    if let Err(e) = snake::ui_kit::init_default_font() {
+        eprintln!("[WARN] Failed to initialize embedded font: {:?}", e);
+    }
     let mut app = App::new();
     loop {
         if app.run_frame() {
@@ -29,3 +32,4 @@ async fn main() {
         macroquad::prelude::next_frame().await;
     }
 }
+
