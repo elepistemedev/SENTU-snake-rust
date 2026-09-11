@@ -510,32 +510,13 @@ impl App {
     }
 
     fn has_dqn_champion(&self) -> bool {
-        if self.dqn.as_ref().and_then(|v| v.champion()).is_some() {
-            return true;
-        }
-        if std::path::Path::new(DQN_CHAMPION_FILE).is_file() {
-            champion_store::load(DQN_CHAMPION_FILE).is_some()
-        } else {
-            false
-        }
+        self.dqn.as_ref().and_then(|v| v.champion()).is_some()
+            || std::path::Path::new(DQN_CHAMPION_FILE).is_file()
     }
 
     fn has_ga_champion(&self) -> bool {
-        if std::path::Path::new("best_snake.json").is_file()
+        std::path::Path::new("best_snake.json").is_file()
             || std::path::Path::new("sim_metadata.json").is_file()
-        {
-            crate::sim::load_ga_champions().best.is_some()
-        } else {
-            false
-        }
-    }
-
-    fn ga_generation(&self) -> usize {
-        std::fs::read_to_string("sim_metadata.json")
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .and_then(|v| v.get("gen_count").and_then(|g| g.as_u64()))
-            .unwrap_or(0) as usize
     }
 
     fn draw_menu(&self) {
@@ -563,10 +544,9 @@ impl App {
         let status_bar_h = 32.0;
         let status_bar_y = h - status_bar_h;
 
-        // Check live champion status
+        // Check live champion status via lightweight file existence / memory checks
         let has_dqn_champ = self.has_dqn_champion();
         let has_ga_champ = self.has_ga_champion();
-        let ga_gen = self.ga_generation();
 
         // 6 Menu Entries with live badges
         let dqn_train_badge = self
@@ -581,7 +561,7 @@ impl App {
         };
 
         let ga_train_badge = if self.ga.is_some() {
-            Some((format!("[PAUSADO - GEN. {}]", ga_gen), ACCENT_GOLD))
+            Some(("[PAUSADO]".to_string(), ACCENT_GOLD))
         } else {
             None
         };
@@ -780,13 +760,13 @@ impl App {
 
             // Retro cursor if selected
             if is_selected {
-                draw_text("▶", margin_x + 10.0, y + 27.0, 16.0, ACCENT_CYAN);
+                draw_text("▶", margin_x + 12.0, y + 27.0, 16.0, ACCENT_CYAN);
             }
 
-            // Key badge [ 1 ] .. [ 4 ]
+            // Key badge [ 1 ] .. [ 4 ] - stable offset across all cards
             let key_badge = format!("[ {} ]", i + 1);
             let key_color = if is_selected { ACCENT_CYAN } else { PANEL_BORDER };
-            let key_badge_x = if is_selected { margin_x + 28.0 } else { margin_x + 14.0 };
+            let key_badge_x = margin_x + 32.0;
             draw_badge(&key_badge, key_badge_x, y + 12.0, key_color);
 
             let key_dims = measure_text(&key_badge, None, 13, 1.0);
@@ -1115,10 +1095,9 @@ mod tests {
     }
 
     #[test]
-    fn app_menu_champion_and_generation_helpers_dont_panic() {
+    fn app_menu_champion_helpers_dont_panic() {
         let app = super::App::new();
         let _ = app.has_dqn_champion();
         let _ = app.has_ga_champion();
-        let _ = app.ga_generation();
     }
 }
