@@ -158,6 +158,25 @@ impl GaTrainView {
         self.sim.mode()
     }
 
+    /// Snapshot of the best GA champions currently available (in-memory or disk fallback).
+    pub fn champions(&self) -> crate::sim::GaChampions {
+        crate::sim::GaChampions {
+            best: self.sim.best_net_ever().cloned().or_else(crate::pop::Population::load_best_net),
+            second_best: self.sim.second_best_net_ever().cloned(),
+            record: self.sim.max_score_ever(),
+        }
+    }
+
+    /// Best GA net currently available.
+    pub fn best_net(&self) -> Option<crate::nn::Net> {
+        self.sim.best_net_ever().cloned().or_else(crate::pop::Population::load_best_net)
+    }
+
+    /// Explicitly synchronize current metadata to disk on session exit/pause.
+    pub fn sync_save(&self) {
+        self.sim.save_metadata();
+    }
+
     /// Draw the frame selected by [`render_target`].
     pub fn draw(&self, theme: crate::theme::GameTheme) {
         match render_target(self.advanced, self.sim.mode()) {

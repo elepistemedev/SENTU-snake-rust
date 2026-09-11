@@ -58,8 +58,14 @@ impl Game {
     }
 
     pub fn get_net_output(&self) -> Vec<Vec<f64>> {
-        let vision = self.get_snake_vision();
-        self.brain.predict(&vision)
+        if self.brain_relative {
+            let abs = self.get_relative_state();
+            let vision = rotate_vision_to_relative(&abs, self.dir);
+            self.brain.predict(&vision)
+        } else {
+            let vision = self.get_snake_vision();
+            self.brain.predict(&vision)
+        }
     }
 
     pub fn get_net(&self) -> &Net {
@@ -68,7 +74,7 @@ impl Game {
 
     fn get_brain_output(&self) -> FourDirs {
         if self.brain_relative {
-            let abs = self.get_snake_vision();
+            let abs = self.get_relative_state();
             let vision = rotate_vision_to_relative(&abs, self.dir);
             let nn_out = self.brain.predict(&vision).pop().unwrap();
             let max_index = nn_out
@@ -241,6 +247,67 @@ impl Game {
         pt
     }
 
+    /// Compute the 12-element absolute observation matching GameDQN::get_state
+    /// exactly: (wall_dist, food_projection, body_dist) across [Left, Right, Bottom, Top].
+    pub fn get_relative_state(&self) -> Vec<f64> {
+        let mut state = Vec::with_capacity(12);
+        let dirs = FourDirs::get_all_dirs();
+
+        let dx = (self.food.x - self.head.x) as f64;
+        let dy = (self.food.y - self.head.y) as f64;
+        let food_dist = (dx * dx + dy * dy).sqrt();
+        let (unit_fx, unit_fy) = if food_dist > 0.0 {
+            (dx / food_dist, dy / food_dist)
+        } else {
+            (0.0, 0.0)
+        };
+
+        for d in dirs {
+            let (wall, food_on_ray, body) = self.look_in_dir_dqn(self.head, d);
+            state.push(wall);
+            let proj = unit_fx * d.0 as f64 + unit_fy * d.1 as f64;
+            let food_val = if food_on_ray {
+                1.0
+            } else {
+                proj.max(0.0)
+            };
+            state.push(food_val);
+            state.push(body);
+        }
+
+        state
+    }
+
+    fn look_in_dir_dqn(&self, from: Point, dir: (i32, i32)) -> (f64, bool, f64) {
+        let mut distance = 1.0;
+        let mut food_found = false;
+        let mut body_distance = f64::INFINITY;
+
+        let mut current = Point::new(from.x + dir.0, from.y + dir.1);
+
+        while !self.is_wall(current) {
+            if current == self.food {
+                food_found = true;
+            }
+            if self.is_snake_body(current) && body_distance == f64::INFINITY {
+                body_distance = distance;
+            }
+
+            current.x += dir.0;
+            current.y += dir.1;
+            distance += 1.0;
+        }
+
+        let wall_dist = 1.0 / distance;
+        let body_dist = if body_distance == f64::INFINITY {
+            0.0
+        } else {
+            1.0 / body_distance
+        };
+
+        (wall_dist, food_found, body_dist)
+    }
+
     fn look_in_dir(&self, st: Point, dir: (i32, i32)) -> (f32, bool, f32) {
         let mut food = false;
         // let mut body = false;
@@ -309,3 +376,79 @@ impl PartialOrd for Game {
         self.fitness().partial_cmp(&other.fitness())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_dqn::GameDQN;
+
+    #[test]
+    fn relative_brain_observation_matches_game_dqn_observation() {
+        let dummy_net = Net::new();
+        let mut game = Game::with_relative_brain(&dummy_net);
+        let mut dqn = GameDQN::new();
+
+        // Configure identical positions
+        let head = Point::new(10, 10);
+        let body = vec![head, Point::new(10, 11), Point::new(10, 12)];
+        let food = Point::new(15, 14); // diagonal food
+        let dir = FourDirs::Top;
+
+        game.head = head;
+        game.body = body.clone();
+        game.food = food;
+        game.dir = dir;
+
+        dqn.head = head;
+        dqn.body = body;
+        dqn.food = food;
+        dqn.dir = dir;
+
+        let game_abs = game.get_relative_state();
+        let game_rel = rotate_vision_to_relative(&game_abs, game.dir);
+        let dqn_obs = dqn.observation();
+
+        assert_eq!(game_rel.len(), 9);
+        assert_eq!(dqn_obs.len(), 9);
+
+        for (i, (g, d)) in game_rel.iter().zip(dqn_obs.iter()).enumerate() {
+            assert!(
+                (g - d).abs() < 1e-6,
+                "Mismatch at feature index {i}: Game relative={g}, GameDQN obs={d}"
+            );
+        }
+    }
+
+    #[test]
+    fn relative_brain_body_distance_zero_when_no_body_present() {
+        let dummy_net = Net::new();
+        let mut game = Game::with_relative_brain(&dummy_net);
+        let mut dqn = GameDQN::new();
+
+        // 1-segment snake in middle of grid
+        let head = Point::new(15, 15);
+        let body = vec![head];
+        let food = Point::new(20, 15);
+        let dir = FourDirs::Right;
+
+        game.head = head;
+        game.body = body.clone();
+        game.food = food;
+        game.dir = dir;
+
+        dqn.head = head;
+        dqn.body = body;
+        dqn.food = food;
+        dqn.dir = dir;
+
+        let game_obs = rotate_vision_to_relative(&game.get_relative_state(), game.dir);
+        let dqn_obs = dqn.observation();
+
+        // Body distance features are indices 2, 5, 8
+        assert_eq!(game_obs[2], 0.0, "Body dist forward must be 0.0");
+        assert_eq!(game_obs[5], 0.0, "Body dist left must be 0.0");
+        assert_eq!(game_obs[8], 0.0, "Body dist right must be 0.0");
+        assert_eq!(game_obs, dqn_obs);
+    }
+}
+

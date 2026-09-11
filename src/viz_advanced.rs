@@ -357,6 +357,9 @@ impl VizAdvanced {
         // 1. SIM STATS
         let mut y = 20.0;
         draw_terminal_box(panel_x, y, panel_w, stats_h, "SIM STATS", false);
+        if max_score > 0 {
+            draw_badge("GUARDADO", panel_x + panel_w - 95.0, y + 13.0, ACCENT_GREEN);
+        }
         let rows = [
             ("Generación:", format!("{}", gen)),
             ("Récord Histórico:", format!("{}", max_score)),

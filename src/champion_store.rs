@@ -6,7 +6,18 @@
 
 use std::fs;
 
+use serde::{Deserialize, Serialize};
+
 use crate::nn::Net;
+
+pub const DQN_METADATA_FILE: &str = "dqn_metadata.json";
+
+/// Bookkeeping metadata associated with the persisted DQN champion.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DqnMetadata {
+    pub best_score: usize,
+    pub episode: usize,
+}
 
 /// Serialize a `Net` to pretty JSON (same format as `best_snake.json`).
 pub fn encode(net: &Net) -> String {
@@ -37,6 +48,20 @@ pub fn save(path: &str, net: &Net) -> std::io::Result<()> {
 pub fn load(path: &str) -> Option<Net> {
     let json = fs::read_to_string(path).ok()?;
     decode(&json).ok()
+}
+
+/// Save DQN champion metadata alongside the network.
+pub fn save_metadata(path: &str, meta: &DqnMetadata) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(meta).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+    })?;
+    fs::write(path, json)
+}
+
+/// Load DQN champion metadata if present.
+pub fn load_metadata(path: &str) -> Option<DqnMetadata> {
+    let json = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&json).ok()
 }
 
 #[cfg(test)]
@@ -114,4 +139,23 @@ mod tests {
         assert!(load(path_str).is_none());
         std::fs::remove_file(&path).ok();
     }
+
+    #[test]
+    fn metadata_round_trip_and_missing() {
+        let path = std::env::temp_dir().join("snake_dqn_metadata_test.json");
+        let path_str = path.to_str().expect("temp path is utf-8");
+
+        assert!(load_metadata("definitely_missing_dqn_metadata.json").is_none());
+
+        let meta = DqnMetadata {
+            best_score: 25,
+            episode: 150,
+        };
+        save_metadata(path_str, &meta).expect("save metadata must succeed");
+        let loaded = load_metadata(path_str).expect("load metadata must succeed");
+        assert_eq!(meta, loaded);
+
+        std::fs::remove_file(&path).ok();
+    }
 }
+

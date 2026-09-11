@@ -82,10 +82,8 @@ impl GaVersusView {
         Self::from_champions(load_ga_champions())
     }
 
-    /// Same as [`GaVersusView::new`] from an explicit champion set. Production
-    /// uses disk-loaded champions; tests inject a deterministic set so the real
-    /// `sim_metadata.json`/`best_snake.json` files are never touched.
-    fn from_champions(champions: GaChampions) -> Self {
+    /// Same as [`GaVersusView::new`] from an explicit champion set.
+    pub fn from_champions(champions: GaChampions) -> Self {
         let record = champions.record;
         match plan_ga_versus(champions) {
             GaVersusPlayers::Missing => Self {
