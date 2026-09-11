@@ -32,7 +32,7 @@ impl Population {
         // Try to load saved model
         let saved_net = Self::load_best_net();
 
-        for _ in 0..NUM_STREAMS {
+        for _ in 0..*NUM_STREAMS {
             let mut stream = Stream::new();
             if let Some(ref net) = saved_net {
                 stream.inject_net(net.clone());
@@ -47,7 +47,7 @@ impl Population {
     }
 
     pub fn update(&mut self) -> usize {
-        let mut games_alive = NUM_GAMES_PER_STREAM * NUM_STREAMS;
+        let mut games_alive = *NUM_GAMES_PER_STREAM * *NUM_STREAMS;
 
         for stream in self.streams.iter_mut() {
             games_alive -= stream.update();
