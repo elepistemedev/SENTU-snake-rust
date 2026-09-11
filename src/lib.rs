@@ -1,34 +1,18 @@
-pub mod agent;
+pub mod domain;
+
 pub mod app;
 pub mod champion_store;
-pub mod configs;
-pub mod dqn;
 pub mod dqn_dash;
-pub mod game;
-pub mod game_dqn;
-pub mod snake_core;
-pub mod swallow;
-pub mod nn;
-pub mod pop;
-pub mod sim;
-pub mod stream;
 pub mod render_snake;
 pub mod theme;
-pub mod utils;
-pub mod versus;
+pub mod ui_kit;
 pub mod view_cross_match;
 pub mod view_dqn_train;
 pub mod view_dqn_versus;
 pub mod view_ga_train;
 pub mod view_ga_versus;
-pub mod ui_kit;
 pub mod viz;
 pub mod viz_advanced;
 pub mod viz_vs;
 
-pub use agent::*;
-pub use configs::*;
-pub use snake_core::SnakeCore;
-pub use swallow::SwallowTracker;
-pub use utils::*;
-
+pub use domain::*;
