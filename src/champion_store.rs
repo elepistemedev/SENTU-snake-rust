@@ -12,11 +12,17 @@ use crate::nn::Net;
 
 pub const DQN_METADATA_FILE: &str = "dqn_metadata.json";
 
+fn default_epsilon() -> f64 {
+    crate::dqn::EPSILON_WARM_START
+}
+
 /// Bookkeeping metadata associated with the persisted DQN champion.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DqnMetadata {
     pub best_score: usize,
     pub episode: usize,
+    #[serde(default = "default_epsilon")]
+    pub epsilon: f64,
 }
 
 /// Serialize a `Net` to pretty JSON (same format as `best_snake.json`).
@@ -150,12 +156,22 @@ mod tests {
         let meta = DqnMetadata {
             best_score: 25,
             episode: 150,
+            epsilon: 0.22,
         };
         save_metadata(path_str, &meta).expect("save metadata must succeed");
         let loaded = load_metadata(path_str).expect("load metadata must succeed");
         assert_eq!(meta, loaded);
 
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn metadata_deserializes_with_default_epsilon_when_missing() {
+        let json = r#"{"best_score": 15, "episode": 42}"#;
+        let meta: DqnMetadata = serde_json::from_str(json).expect("should deserialize legacy json");
+        assert_eq!(meta.best_score, 15);
+        assert_eq!(meta.episode, 42);
+        assert_eq!(meta.epsilon, crate::dqn::EPSILON_WARM_START);
     }
 }
 

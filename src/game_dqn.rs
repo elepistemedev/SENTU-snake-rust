@@ -41,6 +41,14 @@ impl GameDQN {
         }
     }
 
+    /// Construct a game instance whose DQN agent is initialized with pre-trained
+    /// network weights and a specific exploration rate (warm-start training).
+    pub fn with_network(net: &crate::nn::Net, epsilon: f64) -> Self {
+        let mut game = Self::new();
+        game.agent = DQNAgent::with_network(net.clone(), epsilon);
+        game
+    }
+
     pub fn reset(&mut self) {
         self.head = Point::new(GRID_W / 2, GRID_H / 2);
         self.body.clear();
@@ -398,5 +406,13 @@ break;
                 );
             }
         }
+    }
+
+    #[test]
+    fn game_dqn_with_network_preserves_agent_weights_and_epsilon() {
+        let net = crate::nn::Net::new_with_sizes(&crate::dqn::DQN_ARCH);
+        let game = GameDQN::with_network(&net, 0.28);
+        assert_eq!(game.agent.get_epsilon(), 0.28);
+        assert_eq!(game.agent.q_network.layers.len(), net.layers.len());
     }
 }
