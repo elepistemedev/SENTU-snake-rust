@@ -1,10 +1,9 @@
 pub mod domain;
+pub mod persistence;
 
 pub mod app;
-pub mod champion_store;
 pub mod dqn_dash;
 pub mod render_snake;
-pub mod theme;
 pub mod ui_kit;
 pub mod view_cross_match;
 pub mod view_dqn_train;
@@ -16,3 +15,4 @@ pub mod viz_advanced;
 pub mod viz_vs;
 
 pub use domain::*;
+pub use persistence::*;
