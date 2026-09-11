@@ -113,7 +113,7 @@ fn dqn_flavor(live_is_fresh: bool) -> VsFlavor {
             "Current eliminated!"
         },
         back_label: "[ESC] Menu",
-        controls_label: "[ESC] Menu",
+        controls_label: "[SPACE] Vel  [ESC] Menu",
     }
 }
 
