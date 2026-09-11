@@ -157,8 +157,9 @@ impl Simulation {
                 self.tick_training();
 
                 if is_viz_enabled {
-                    self.draw_advanced();
+                    self.draw_advanced(crate::theme::load_theme());
                 }
+
             }
             SimMode::VS => {
                 let both_complete = self.step_vs_games();
@@ -316,8 +317,8 @@ impl Simulation {
         }
     }
 
-    pub fn draw_advanced(&self) {
-        clear_background(BLACK);
+    pub fn draw_advanced(&self, theme: crate::theme::GameTheme) {
+        clear_background(crate::ui_kit::COLOR_BG);
 
         let top_games = self.pop.get_top_games(10);
         if !top_games.is_empty() {
@@ -333,9 +334,11 @@ impl Simulation {
                 best_game.score(),
                 best_game.fitness(),
                 best_game.num_steps,
+                theme,
             );
         }
     }
+
 }
 
 #[cfg(test)]

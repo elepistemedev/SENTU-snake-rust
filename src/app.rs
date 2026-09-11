@@ -684,9 +684,10 @@ impl App {
 
     fn draw_ga_train(&mut self) {
         if let Some(view) = &self.ga {
-            view.draw();
+            view.draw(self.active_theme);
         }
     }
+
 
     fn draw_match(&mut self) {
         if let Some(match_) = &self.match_view {
