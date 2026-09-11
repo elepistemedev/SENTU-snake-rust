@@ -19,13 +19,26 @@
 //! `screen_height()` (no hardcoded 800×600 offsets). Toggling never perturbs
 //! the in-flight episode or session bookkeeping.
 
+use std::thread;
+use std::time::Duration;
+
 use macroquad::prelude::*;
 
 use crate::champion_store;
-use crate::configs::{GRID_H, GRID_W};
+use crate::configs::{GRID_H, GRID_W, SIM_SLEEP_MILLIS};
 use crate::dqn_dash::{self, EpisodeHistory};
 use crate::game_dqn::GameDQN;
 use crate::nn::Net;
+use crate::view_ga_train::MAX_FAST_TICKS_PER_FRAME;
+
+/// Number of DQN steps to run in one frame for a given pacing request.
+pub fn dqn_frame_tick_budget(slow_requested: bool) -> usize {
+    if slow_requested {
+        1
+    } else {
+        *MAX_FAST_TICKS_PER_FRAME
+    }
+}
 
 /// Where the DQN champion snapshot is persisted (serde `Net`, same format as
 /// `best_snake.json`). Missing or corrupt contents degrade to no champion.
@@ -89,13 +102,15 @@ pub struct DqnTrainView {
     /// Where the champion is loaded from/saved to. Defaults to
     /// [`DQN_CHAMPION_FILE`]; tests inject a private temp path.
     champion_path: &'static str,
+    /// User pacing request (`Space`): `true` = 1 step per frame + sleep.
+    slow: bool,
 }
 
 impl DqnTrainView {
     /// Start a fresh training session: a brand-new agent/board and zeroed
     /// bookkeeping, with any previously persisted champion loaded from
     /// `dqn_champion.json` (missing or corrupt file → no champion, never a
-    /// panic).
+    /// panic). Defaults to slow pacing (matching GA training default).
     pub fn new() -> Self {
         Self::at_path(DQN_CHAMPION_FILE)
     }
@@ -136,18 +151,37 @@ impl DqnTrainView {
             dashboard: true,
             history: EpisodeHistory::new(),
             champion_path,
+            slow: true,
         }
     }
 
-    /// Advance training one frame: exactly one `GameDQN::step()`. When the
-    /// episode ends, bookkeeping runs through [`on_episode_end`]; a record
-    /// replaces the in-memory champion and persists it via
-    /// `champion_store::save(…, champion)`, then the board resets.
+    /// Advance training one frame: either 1 step (+ sleep) if slow, or up to
+    /// [`MAX_FAST_TICKS_PER_FRAME`] steps if fast. When an episode ends,
+    /// bookkeeping runs through [`on_episode_end`]; a record replaces the
+    /// in-memory champion and persists it via `champion_store::save(…, champion)`,
+    /// then the board resets.
     pub fn tick(&mut self) {
-        let (_reward, done) = self.game.step();
-        if done {
-            self.end_episode();
+        let budget = dqn_frame_tick_budget(self.slow);
+        for _ in 0..budget {
+            let (_reward, done) = self.game.step();
+            if done {
+                self.end_episode();
+            }
         }
+        if self.slow {
+            thread::sleep(Duration::from_millis(*SIM_SLEEP_MILLIS));
+        }
+    }
+
+    /// User pacing request (slow = 1 step per frame + sleep).
+    pub fn is_slow(&self) -> bool {
+        self.slow
+    }
+
+    /// Set the pacing request (shell maps `Space` key-release to a toggle via
+    /// [`DqnTrainView::toggle_slow`]).
+    pub fn toggle_slow(&mut self) {
+        self.slow = !self.slow;
     }
 
     fn end_episode(&mut self) {
@@ -289,6 +323,7 @@ impl DqnTrainView {
                 self.episode,
                 self.best_score,
                 &self.history,
+                self.slow,
                 theme,
             ),
             DqnRenderTarget::Hud => self.draw_hud(theme),
@@ -326,6 +361,20 @@ impl DqnTrainView {
             155.0,
             20.0,
             WHITE,
+        );
+        draw_text(
+            &format!("Speed: {}", if self.slow { "Slow (1x)" } else { "Fast (50x)" }),
+            10.0,
+            185.0,
+            20.0,
+            WHITE,
+        );
+        draw_text(
+            "[SPACE] Slow/Fast  [TAB] Dashboard  [R] Reset  [ESC] Menu",
+            10.0,
+            220.0,
+            16.0,
+            crate::ui_kit::TEXT_MUTED,
         );
 
         let (tile_size, offset_x, offset_y) = self.grid_layout();
@@ -809,5 +858,18 @@ mod tests {
 
         std::fs::remove_file(TEST_WARM_FILE).ok();
         std::fs::remove_file(&meta_file).ok();
+    }
+
+    #[test]
+    fn speed_toggle_and_tick_budget() {
+        assert_eq!(dqn_frame_tick_budget(true), 1);
+        assert_eq!(dqn_frame_tick_budget(false), *MAX_FAST_TICKS_PER_FRAME);
+
+        let mut view = DqnTrainView::new();
+        assert!(view.is_slow());
+        view.toggle_slow();
+        assert!(!view.is_slow());
+        view.toggle_slow();
+        assert!(view.is_slow());
     }
 }
