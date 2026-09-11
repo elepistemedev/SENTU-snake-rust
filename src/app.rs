@@ -25,6 +25,10 @@
 use macroquad::prelude::*;
 
 use crate::champion_store;
+use crate::ui_kit::{
+    draw_badge, draw_centered_text, draw_terminal_box, ACCENT_CYAN, ACCENT_GOLD, ACCENT_GREEN,
+    ACCENT_RED, COLOR_BG, PANEL_BG, PANEL_BORDER, PANEL_BORDER_FOCUSED, TEXT_MUTED,
+};
 use crate::view_cross_match::CrossMatchView;
 use crate::view_dqn_train::{DqnTrainView, DQN_CHAMPION_FILE};
 use crate::view_dqn_versus::DqnVersusView;
@@ -505,64 +509,183 @@ impl App {
         }
     }
 
+    fn has_dqn_champion(&self) -> bool {
+        if self.dqn.as_ref().and_then(|v| v.champion()).is_some() {
+            return true;
+        }
+        if std::path::Path::new(DQN_CHAMPION_FILE).is_file() {
+            champion_store::load(DQN_CHAMPION_FILE).is_some()
+        } else {
+            false
+        }
+    }
+
+    fn has_ga_champion(&self) -> bool {
+        if std::path::Path::new("best_snake.json").is_file()
+            || std::path::Path::new("sim_metadata.json").is_file()
+        {
+            crate::sim::load_ga_champions().best.is_some()
+        } else {
+            false
+        }
+    }
+
+    fn ga_generation(&self) -> usize {
+        std::fs::read_to_string("sim_metadata.json")
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("gen_count").and_then(|g| g.as_u64()))
+            .unwrap_or(0) as usize
+    }
+
     fn draw_menu(&self) {
-        clear_background(BLACK);
+        clear_background(COLOR_BG);
 
         let (w, h) = (screen_width(), screen_height());
         let center_x = w * 0.5;
 
-        self.centered_text("SNAKE AI", center_x, h * 0.07, 48.0, WHITE);
-        self.centered_text("choose a mode", center_x, h * 0.07 + 42.0, 20.0, GRAY);
+        // Top terminal title box
+        let title_w = (w * 0.58).clamp(420.0, 560.0);
+        let title_h = 72.0;
+        let title_x = center_x - title_w * 0.5;
+        let title_y = (h * 0.04).max(12.0);
 
-        let dqn_label = match &self.dqn {
-            // AD-3 / spec: a paused DQN run is resumable from the menu, and the
-            // menu says so (with its episode counter) instead of hiding it.
-            Some(view) => format!(
-                "1) DQN Train  (paused at episode {} - press 1 to resume)",
-                view.episode()
-            ),
-            None => "1) DQN Train  (start fresh agent)".to_owned(),
-        };
-        let ga_label = if self.ga.is_some() {
-            "3) GA Train  (paused - press 3 to resume)".to_owned()
+        draw_terminal_box(title_x, title_y, title_w, title_h, "SNAKE AI", false);
+        draw_centered_text(
+            "AUTONOMOUS DEEP RL & GA SYSTEM",
+            center_x,
+            title_y + 48.0,
+            14.0,
+            TEXT_MUTED,
+        );
+
+        // Bottom status bar
+        let status_bar_h = 32.0;
+        let status_bar_y = h - status_bar_h;
+
+        // Check live champion status
+        let has_dqn_champ = self.has_dqn_champion();
+        let has_ga_champ = self.has_ga_champion();
+        let ga_gen = self.ga_generation();
+
+        // 6 Menu Entries with live badges
+        let dqn_train_badge = self
+            .dqn
+            .as_ref()
+            .map(|view| (format!("[PAUSADO - EP. {}]", view.episode()), ACCENT_GOLD));
+
+        let dqn_versus_badge = if has_dqn_champ {
+            Some(("[CHAMPION LISTO]".to_string(), ACCENT_GREEN))
         } else {
-            "3) GA Train  (start fresh)".to_owned()
+            Some(("[REQUIERE CHAMPION]".to_string(), ACCENT_RED))
         };
-        let entries: [String; 6] = [
-            dqn_label,
-            "2) DQN Versus".to_owned(),
-            ga_label,
-            "4) GA Versus".to_owned(),
-            "5) DQN vs GA".to_owned(),
-            format!("6) Configuración y Temas  [Tema: {}]", self.active_theme.name()),
+
+        let ga_train_badge = if self.ga.is_some() {
+            Some((format!("[PAUSADO - GEN. {}]", ga_gen), ACCENT_GOLD))
+        } else {
+            None
+        };
+
+        let ga_versus_badge = if has_ga_champ {
+            Some(("[CHAMPION LISTO]".to_string(), ACCENT_GREEN))
+        } else {
+            Some(("[REQUIERE CHAMPION]".to_string(), ACCENT_RED))
+        };
+
+        let cross_badge = if has_dqn_champ && has_ga_champ {
+            Some(("[CHAMPION LISTO]".to_string(), ACCENT_GREEN))
+        } else {
+            Some(("[REQUIERE CHAMPION]".to_string(), ACCENT_RED))
+        };
+
+        let theme_badge = Some((
+            format!("[TEMA: {}]", self.active_theme.name().to_uppercase()),
+            ACCENT_CYAN,
+        ));
+
+        let items: [(&str, Option<(String, Color)>); 6] = [
+            ("DQN Train", dqn_train_badge),
+            ("DQN Versus", dqn_versus_badge),
+            ("GA Train", ga_train_badge),
+            ("GA Versus", ga_versus_badge),
+            ("DQN vs GA", cross_badge),
+            ("Configuración y Temas", theme_badge),
         ];
 
-        let start_y = h * 0.25;
-        let row_h = h * 0.09;
-        for (i, label) in entries.iter().enumerate() {
-            let y = start_y + i as f32 * row_h;
-            let selected = i == self.menu_selection;
-            let color = if selected { YELLOW } else { WHITE };
-            self.centered_text(label, center_x, y, 30.0, color);
-            if selected {
-                let dims = measure_text(label, None, 30, 1.0);
-                self.centered_text("<", center_x - dims.width * 0.5 - 25.0, y, 30.0, YELLOW);
-                self.centered_text(">", center_x + dims.width * 0.5 + 25.0, y, 30.0, YELLOW);
+        let menu_w = (w * 0.68).clamp(480.0, 660.0);
+        let card_x = center_x - menu_w * 0.5;
+        let start_y = title_y + title_h + (h * 0.03).max(14.0);
+        let avail_h = status_bar_y - start_y - 14.0;
+        let gap = 10.0;
+        let card_h = ((avail_h - gap * 5.0) / 6.0).clamp(42.0, 56.0);
+
+        for (i, (label, badge_info)) in items.iter().enumerate() {
+            let card_y = start_y + i as f32 * (card_h + gap);
+            let is_selected = i == self.menu_selection;
+
+            if is_selected {
+                draw_rectangle(
+                    card_x,
+                    card_y,
+                    menu_w,
+                    card_h,
+                    Color::new(0.08, 0.12, 0.16, 0.95),
+                );
+                draw_rectangle_lines(
+                    card_x + 1.0,
+                    card_y + 1.0,
+                    menu_w - 2.0,
+                    card_h - 2.0,
+                    1.0,
+                    PANEL_BORDER_FOCUSED,
+                );
+            }
+            draw_terminal_box(card_x, card_y, menu_w, card_h, "", is_selected);
+
+            // Retro cursor on left
+            if is_selected {
+                draw_text("▶", card_x + 12.0, card_y + card_h * 0.5 + 6.0, 18.0, ACCENT_CYAN);
+            }
+
+            // Key badge [ 1 ] .. [ 6 ]
+            let key_str = format!("[ {} ]", i + 1);
+            let key_color = if is_selected { ACCENT_CYAN } else { PANEL_BORDER };
+            let key_y = card_y + (card_h - 20.0) * 0.5;
+            draw_badge(&key_str, card_x + 34.0, key_y, key_color);
+
+            // Item label
+            let label_color = if is_selected { ACCENT_GOLD } else { WHITE };
+            draw_text(label, card_x + 92.0, card_y + card_h * 0.5 + 6.0, 19.0, label_color);
+
+            // Status badge (right-aligned)
+            if let Some((badge_str, badge_color)) = badge_info {
+                let b_dims = measure_text(badge_str, None, 13, 1.0);
+                let b_w = b_dims.width + 16.0;
+                let b_x = card_x + menu_w - 38.0 - b_w;
+                let b_y = card_y + (card_h - 20.0) * 0.5;
+                draw_badge(badge_str, b_x, b_y, *badge_color);
+            }
+
+            // Retro cursor on right
+            if is_selected {
+                draw_text("◀", card_x + menu_w - 24.0, card_y + card_h * 0.5 + 6.0, 18.0, ACCENT_CYAN);
             }
         }
 
-        self.centered_text(
-            "[1-6] or [Up/Down]+[Enter] select    [ESC] Quit",
-            center_x,
-            h * 0.93,
-            18.0,
-            GRAY,
+        // Bottom status bar across screen width
+        draw_rectangle(0.0, status_bar_y, w, status_bar_h, PANEL_BG);
+        draw_line(0.0, status_bar_y, w, status_bar_y, 1.5, PANEL_BORDER);
+        let status_text = format!(
+            "[1-6] / [↑↓] + [ENTER] Iniciar   [ESC] Salir   |   TEMA: {}",
+            self.active_theme.name()
         );
-    }
-
-    fn centered_text(&self, text: &str, x: f32, y: f32, font_size: f32, color: Color) {
-        let dims = measure_text(text, None, font_size as u16, 1.0);
-        draw_text(text, x - dims.width * 0.5, y, font_size, color);
+        draw_centered_text(
+            &status_text,
+            center_x,
+            status_bar_y + 20.0,
+            14.0,
+            TEXT_MUTED,
+        );
     }
 
         fn draw_dqn_train(&mut self) {
@@ -592,18 +715,24 @@ impl App {
     }
 
     fn draw_theme_config(&self) {
-        clear_background(BLACK);
+        clear_background(COLOR_BG);
 
         let (w, h) = (screen_width(), screen_height());
         let center_x = w * 0.5;
 
-        self.centered_text("CONFIGURACIÓN Y TEMAS", center_x, h * 0.08, 40.0, WHITE);
-        self.centered_text(
-            "Personaliza los colores de la serpiente y la manzana",
+        // Top terminal title box
+        let title_w = (w * 0.60).clamp(420.0, 580.0);
+        let title_h = 68.0;
+        let title_x = center_x - title_w * 0.5;
+        let title_y = (h * 0.03).max(10.0);
+
+        draw_terminal_box(title_x, title_y, title_w, title_h, "CONFIGURACIÓN Y TEMAS", false);
+        draw_centered_text(
+            "PERSONALIZACIÓN VISUAL // PALETAS DE COLOR",
             center_x,
-            h * 0.08 + 36.0,
-            18.0,
-            GRAY,
+            title_y + 45.0,
+            14.0,
+            TEXT_MUTED,
         );
 
         let themes = crate::theme::GameTheme::all();
@@ -615,93 +744,122 @@ impl App {
         };
         let preview_colors = preview_theme.colors();
 
-        // Left column: Theme list cards (4 themes)
-        let list_x = w * 0.08;
-        let list_y = h * 0.17;
-        let row_h = h * 0.18;
+        let bottom_bar_h = 32.0;
+        let bottom_bar_y = h - bottom_bar_h;
 
+        let content_y = title_y + title_h + (h * 0.025).max(10.0);
+        let content_h = bottom_bar_y - content_y - 12.0;
+
+        let col_gap = 18.0;
+        let margin_x = (w * 0.05).max(16.0);
+        let col_w = ((w - margin_x * 2.0 - col_gap) * 0.52).clamp(320.0, 520.0);
+        let preview_x = margin_x + col_w + col_gap;
+        let preview_w = w - preview_x - margin_x;
+
+        let card_gap = 10.0;
+        let card_h = ((content_h - card_gap * 3.0) / 4.0).clamp(65.0, 95.0);
+
+        // Left column: 4 theme cards
         for (i, &theme) in themes.iter().enumerate() {
-            let y = list_y + i as f32 * row_h;
+            let y = content_y + i as f32 * (card_h + card_gap);
             let is_selected = i == self.theme_selection;
             let is_active = theme == self.active_theme;
 
-            let card_w = w * 0.44;
-            let card_h = row_h * 0.88;
+            if is_selected {
+                draw_rectangle(margin_x, y, col_w, card_h, Color::new(0.08, 0.12, 0.16, 0.95));
+                draw_rectangle_lines(
+                    margin_x + 1.0,
+                    y + 1.0,
+                    col_w - 2.0,
+                    card_h - 2.0,
+                    1.0,
+                    PANEL_BORDER_FOCUSED,
+                );
+            }
+            draw_terminal_box(margin_x, y, col_w, card_h, "", is_selected);
 
-            let bg_color = if is_selected {
-                Color::new(0.12, 0.15, 0.22, 1.0)
-            } else {
-                Color::new(0.06, 0.06, 0.08, 1.0)
-            };
-            let border_color = if is_selected {
-                YELLOW
-            } else if is_active {
-                Color::new(0.3, 0.8, 0.4, 1.0)
-            } else {
-                Color::new(0.2, 0.2, 0.25, 1.0)
-            };
+            // Retro cursor if selected
+            if is_selected {
+                draw_text("▶", margin_x + 10.0, y + 27.0, 16.0, ACCENT_CYAN);
+            }
 
-            draw_rectangle(list_x, y, card_w, card_h, bg_color);
-            draw_rectangle_lines(list_x, y, card_w, card_h, 2.0, border_color);
+            // Key badge [ 1 ] .. [ 4 ]
+            let key_badge = format!("[ {} ]", i + 1);
+            let key_color = if is_selected { ACCENT_CYAN } else { PANEL_BORDER };
+            let key_badge_x = if is_selected { margin_x + 28.0 } else { margin_x + 14.0 };
+            draw_badge(&key_badge, key_badge_x, y + 12.0, key_color);
 
-            // Number + Name
-            let title_color = if is_selected { YELLOW } else { WHITE };
-            let title = format!("{}) Tema {}", i + 1, theme.name());
-            draw_text(&title, list_x + 18.0, y + 32.0, 24.0, title_color);
+            let key_dims = measure_text(&key_badge, None, 13, 1.0);
+            let name_x = key_badge_x + key_dims.width + 16.0 + 10.0;
+
+            let name_color = if is_selected { ACCENT_GOLD } else { WHITE };
+            draw_text(&format!("Tema {}", theme.name()), name_x, y + 27.0, 19.0, name_color);
 
             // Active badge
             if is_active {
-                draw_text("[ACTIVO]", list_x + card_w - 95.0, y + 32.0, 18.0, Color::new(0.3, 0.9, 0.4, 1.0));
+                let badge_text = "[ACTIVO]";
+                let b_dims = measure_text(badge_text, None, 13, 1.0);
+                draw_badge(badge_text, margin_x + col_w - b_dims.width - 28.0, y + 12.0, ACCENT_GREEN);
             }
 
             // Description
-            draw_text(theme.description(), list_x + 18.0, y + 62.0, 16.0, GRAY);
+            draw_text(theme.description(), margin_x + 16.0, y + 49.0, 13.0, TEXT_MUTED);
 
             // Swatches inside card
             let tc = theme.colors();
-            let swatch_y = y + card_h - 26.0;
-            draw_rectangle(list_x + 18.0, swatch_y, 14.0, 14.0, tc.head);
-            draw_text("Cabeza", list_x + 38.0, swatch_y + 11.0, 14.0, tc.head);
+            let swatch_y = y + card_h - 22.0;
+            let sz = 13.0;
 
-            draw_rectangle(list_x + 110.0, swatch_y, 14.0, 14.0, tc.body);
-            draw_text("Cuerpo", list_x + 130.0, swatch_y + 11.0, 14.0, tc.body);
+            // Head swatch
+            draw_rectangle(margin_x + 16.0, swatch_y, sz, sz, tc.head);
+            draw_rectangle_lines(margin_x + 16.0, swatch_y, sz, sz, 1.0, PANEL_BORDER);
+            draw_text("Cabeza", margin_x + 34.0, swatch_y + 11.0, 12.0, TEXT_MUTED);
 
-            draw_rectangle(list_x + 200.0, swatch_y, 14.0, 14.0, tc.food);
-            draw_text("Manzana", list_x + 220.0, swatch_y + 11.0, 14.0, tc.food);
+            // Body swatch
+            draw_rectangle(margin_x + 104.0, swatch_y, sz, sz, tc.body);
+            draw_rectangle_lines(margin_x + 104.0, swatch_y, sz, sz, 1.0, PANEL_BORDER);
+            draw_text("Cuerpo", margin_x + 122.0, swatch_y + 11.0, 12.0, TEXT_MUTED);
+
+            // Apple swatch
+            draw_rectangle(margin_x + 190.0, swatch_y, sz, sz, tc.food);
+            draw_rectangle_lines(margin_x + 190.0, swatch_y, sz, sz, 1.0, PANEL_BORDER);
+            draw_text("Manzana", margin_x + 208.0, swatch_y + 11.0, 12.0, TEXT_MUTED);
         }
 
         // Right column: Live preview panel
-        let preview_x = w * 0.56;
-        let preview_y = h * 0.17;
-        let preview_w = w * 0.36;
-        let preview_h = row_h * 3.88;
+        draw_terminal_box(preview_x, content_y, preview_w, content_h, "VISTA PREVIA", false);
 
-        draw_rectangle(preview_x, preview_y, preview_w, preview_h, Color::new(0.05, 0.05, 0.07, 1.0));
-        draw_rectangle_lines(preview_x, preview_y, preview_w, preview_h, 2.0, Color::new(0.3, 0.35, 0.45, 1.0));
+        let preview_header = format!("TEMA: {}", preview_theme.name().to_uppercase());
+        draw_centered_text(
+            &preview_header,
+            preview_x + preview_w * 0.5,
+            content_y + 36.0,
+            16.0,
+            ACCENT_GOLD,
+        );
 
-        let preview_title = format!("VISTA PREVIA: {}", preview_theme.name().to_uppercase());
-        self.centered_text(&preview_title, preview_x + preview_w * 0.5, preview_y + 35.0, 20.0, YELLOW);
-
-        // Draw mini board grid in the preview
+        // Mini board grid
         let grid_size = 12;
-        let cell_size = (preview_w.min(preview_h) * 0.50 / grid_size as f32).floor();
+        let avail_board_h = content_h - 100.0;
+        let avail_board_w = preview_w - 40.0;
+        let cell_size = (avail_board_w.min(avail_board_h) / grid_size as f32).floor().max(12.0);
         let board_w = cell_size * grid_size as f32;
         let board_h = cell_size * grid_size as f32;
         let board_x = preview_x + (preview_w - board_w) * 0.5;
-        let board_y = preview_y + 55.0;
+        let board_y = content_y + 52.0;
 
         draw_rectangle(board_x, board_y, board_w, board_h, Color::new(0.02, 0.02, 0.03, 1.0));
-        draw_rectangle_lines(board_x, board_y, board_w, board_h, 1.0, Color::new(0.2, 0.2, 0.25, 1.0));
+        draw_rectangle_lines(board_x, board_y, board_w, board_h, 1.5, PANEL_BORDER);
 
-        // Subtle grid lines
+        // Grid lines
         for g in 1..grid_size {
             let gx = board_x + g as f32 * cell_size;
             let gy = board_y + g as f32 * cell_size;
-            draw_line(gx, board_y, gx, board_y + board_h, 1.0, Color::new(0.1, 0.1, 0.12, 1.0));
-            draw_line(board_x, gy, board_x + board_w, gy, 1.0, Color::new(0.1, 0.1, 0.12, 1.0));
+            draw_line(gx, board_y, gx, board_y + board_h, 1.0, Color::new(0.10, 0.12, 0.15, 1.0));
+            draw_line(board_x, gy, board_x + board_w, gy, 1.0, Color::new(0.10, 0.12, 0.15, 1.0));
         }
 
-        // Draw food
+        // Food / Apple
         let food_pos = (8, 3);
         crate::render_snake::draw_apple(
             board_x + food_pos.0 as f32 * cell_size,
@@ -711,14 +869,18 @@ impl App {
             preview_colors.food,
         );
 
-        // Draw snake (head + 4 body segments with corner curve)
+        // Snake preview (head at (5,5), body 1 at (4,5), corner at (3,5), body 2 at (3,6), tail at (3,7))
         let snake_points = [
             crate::utils::Point { x: 5, y: 5 }, // head (facing Right)
             crate::utils::Point { x: 4, y: 5 }, // body 1 (straight horizontal)
-            crate::utils::Point { x: 3, y: 5 }, // body 2 (corner with preview digestion bulge!)
+            crate::utils::Point { x: 3, y: 5 }, // body 2 (corner turning down)
             crate::utils::Point { x: 3, y: 6 }, // body 3 (straight vertical)
             crate::utils::Point { x: 3, y: 7 }, // tail
         ];
+
+        let time = get_time();
+        let active_bulge_idx = 1 + ((time * 2.5) as usize % 4);
+
         for (idx, pt) in snake_points.iter().enumerate() {
             let seg_x = board_x + pt.x as f32 * cell_size;
             let seg_y = board_y + pt.y as f32 * cell_size;
@@ -727,7 +889,12 @@ impl App {
             } else {
                 preview_colors.body
             };
-            let bulge = if idx == 2 { 0.35 } else { 0.0 };
+            let bulge = if idx == active_bulge_idx { 0.35 } else { 0.0 };
+            let head_scale = if idx == 0 && active_bulge_idx == 1 {
+                ((time * 5.0).sin().abs() * 0.15) as f32
+            } else {
+                0.0
+            };
             crate::render_snake::draw_connected_segment(
                 &snake_points,
                 idx,
@@ -738,27 +905,31 @@ impl App {
                 preview_theme,
                 color,
                 bulge,
-                0.0,
+                head_scale,
             );
         }
 
         // Explanatory note inside preview
-        let note_y = board_y + board_h + 30.0;
-        self.centered_text(
-            "Se aplica a todos los modos de juego y entrenamiento",
-            preview_x + preview_w * 0.5,
-            note_y,
-            14.0,
-            GRAY,
-        );
+        let note_y = board_y + board_h + 18.0;
+        if note_y + 14.0 < content_y + content_h {
+            draw_centered_text(
+                "Vista en vivo con ojos direccionales y onda digestiva",
+                preview_x + preview_w * 0.5,
+                note_y,
+                13.0,
+                TEXT_MUTED,
+            );
+        }
 
-        // Footer instructions
-        self.centered_text(
-            "[1-4] o [Arriba/Abajo] Seleccionar    [Enter] Guardar y Salir    [ESC] Cancelar",
+        // Instructions footer in a terminal status bar
+        draw_rectangle(0.0, bottom_bar_y, w, bottom_bar_h, PANEL_BG);
+        draw_line(0.0, bottom_bar_y, w, bottom_bar_y, 1.5, PANEL_BORDER);
+        draw_centered_text(
+            "[1-4] / [↑↓] Seleccionar   [ENTER] Guardar   [ESC] Cancelar",
             center_x,
-            h * 0.94,
-            18.0,
-            YELLOW,
+            bottom_bar_y + 20.0,
+            14.0,
+            TEXT_MUTED,
         );
     }
 }
@@ -941,5 +1112,13 @@ mod tests {
                 "Select must be ignored in {view:?}"
             );
         }
+    }
+
+    #[test]
+    fn app_menu_champion_and_generation_helpers_dont_panic() {
+        let app = super::App::new();
+        let _ = app.has_dqn_champion();
+        let _ = app.has_ga_champion();
+        let _ = app.ga_generation();
     }
 }
