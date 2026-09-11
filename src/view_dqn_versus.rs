@@ -87,6 +87,7 @@ enum DqnVersusInner {
     /// player 2 is the fresh greedy fallback (for labeling).
     Series {
         series: DqnSeries,
+        flavor: VsFlavor,
         live_is_fresh: bool,
     },
 }
@@ -129,10 +130,11 @@ impl DqnVersusView {
             DqnVersusPlayers::ChampionVsLive { champion, live } => {
                 let flavor = dqn_flavor(false);
                 let builder: Box<dyn FnMut() -> VersusMatch> =
-                    Box::new(move || VersusMatch::new_relative(champion.clone(), live.clone(), flavor));
+                    Box::new(move || VersusMatch::new_relative(champion.clone(), live.clone()));
                 Self {
                     inner: DqnVersusInner::Series {
                         series: BestOfSeries::new(builder),
+                        flavor,
                         live_is_fresh: false,
                     },
                 }
@@ -141,11 +143,12 @@ impl DqnVersusView {
                 let flavor = dqn_flavor(true);
                 let builder: Box<dyn FnMut() -> VersusMatch> = Box::new(move || {
                     let fresh_net = DQNAgent::new().q_network;
-                    VersusMatch::new_relative(champion.clone(), fresh_net, flavor)
+                    VersusMatch::new_relative(champion.clone(), fresh_net)
                 });
                 Self {
                     inner: DqnVersusInner::Series {
                         series: BestOfSeries::new(builder),
+                        flavor,
                         live_is_fresh: true,
                     },
                 }
@@ -215,7 +218,9 @@ impl DqnVersusView {
                     "[ESC] Menu",
                 );
             }
-            DqnVersusInner::Series { series, .. } => series.draw(),
+            DqnVersusInner::Series { series, flavor, .. } => {
+                crate::viz_vs::VizVS::new().draw_series_match(series, flavor);
+            }
         }
     }
 }

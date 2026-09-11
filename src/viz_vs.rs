@@ -5,7 +5,7 @@ use crate::ui_kit::{
     draw_centered_text, draw_terminal_box, ACCENT_CYAN, ACCENT_GOLD, ACCENT_GREEN, ACCENT_RED,
     TEXT_MUTED,
 };
-use crate::versus::SeriesInfo;
+use crate::versus::{BestOfSeries, SeriesInfo, VersusMatch};
 use macroquad::prelude::*;
 
 const PANEL_BORDER: Color = Color::new(0.4, 0.4, 0.4, 1.0);
@@ -146,6 +146,21 @@ impl VizVS {
         max_score_ever: usize,
     ) {
         self.draw_flavored(game1, game2, &VsFlavor::ga_default(max_score_ever));
+    }
+
+    /// Draw a versus match for the given flavor.
+    pub fn draw_match(&self, match_: &VersusMatch, flavor: &VsFlavor) {
+        self.draw_flavored(match_.game1(), match_.game2(), flavor);
+    }
+
+    /// Draw a versus series match with the series HUD overlay.
+    pub fn draw_series_match<B: FnMut() -> VersusMatch>(
+        &self,
+        series: &BestOfSeries<B>,
+        flavor: &VsFlavor,
+    ) {
+        let current = series.current_match();
+        self.draw_series(current.game1(), current.game2(), flavor, &series.series_info());
     }
 
     /// Draw a versus match for any [`VsFlavor`].
