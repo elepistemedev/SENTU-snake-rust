@@ -3,41 +3,45 @@
 
 use crate::agent::{Agent, DqnPolicyAgent, GaAgent};
 use crate::nn::Net;
+use crate::snake_core::SnakeCore;
 use crate::*;
 
 #[derive(Clone)]
 pub struct Game {
-    pub head: Point,
-    pub body: Vec<Point>,
-    pub food: Point,
-    pub dir: FourDirs,
+    /// Shared board physics (head, body, food, dir, swallow, step counters).
+    pub core: SnakeCore,
     pub brain: Net,
     pub agent: Option<Box<dyn Agent>>,
-
     pub is_complete: bool,
-    pub swallow: crate::render_snake::SwallowTracker,
-    no_food_steps: usize,
-    pub num_steps: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Deref – lets callers write `game.head`, `game.body`, `game.is_wall(pt)`, etc.
+// ---------------------------------------------------------------------------
+
+impl std::ops::Deref for Game {
+    type Target = SnakeCore;
+    #[inline]
+    fn deref(&self) -> &SnakeCore {
+        &self.core
+    }
+}
+
+impl std::ops::DerefMut for Game {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut SnakeCore {
+        &mut self.core
+    }
 }
 
 impl Game {
     pub fn new() -> Self {
-        let mut body = Vec::new();
-        let head = Point::new(GRID_W / 2, GRID_H / 2);
-        body.push(head.clone());
         let brain = Net::new();
-
         Self {
-            body,
-            head,
-            food: Point::rand(),
-            dir: FourDirs::get_rand_dir(),
+            core: SnakeCore::new(),
             brain: brain.clone(),
             agent: Some(Box::new(GaAgent::new(brain))),
             is_complete: false,
-            swallow: crate::render_snake::SwallowTracker::new(),
-            no_food_steps: 0,
-            num_steps: 0,
         }
     }
 
@@ -46,12 +50,12 @@ impl Game {
             return;
         }
 
-        self.num_steps += 1;
-        self.dir = self.get_brain_output();
+        self.core.num_steps += 1;
+        self.core.dir = self.get_brain_output();
         self.handle_food_collision();
         self.update_snake_positions();
         self.handle_step_limit();
-        if self.is_wall(self.head) || self.is_snake_body(self.head) {
+        if self.core.is_wall(self.core.head) || self.core.is_snake_body(self.core.head) {
             self.is_complete = true;
         }
     }
@@ -83,36 +87,27 @@ impl Game {
         // self.get_11_vision()
         // self.get_custom_vision()
         // self.get_eight_dir_vision()
-        self.get_four_dir_vision()
+        self.core.get_four_dir_vision()
     }
 
+    /// Delegated to SnakeCore – kept as a public method for backward compat.
     pub fn get_four_dir_vision(&self) -> Vec<f64> {
-        let mut vision = Vec::new();
-        let dirs = FourDirs::get_all_dirs();
-
-        for d in dirs {
-            let (wall, food, body) = self.look_in_dir(self.head, d);
-            vision.push(wall as f64);
-            vision.push(if food { 1.0 } else { 0.0 });
-            vision.push(body as f64);
-        }
-
-        vision
+        self.core.get_four_dir_vision()
     }
 
     pub fn fitness(&self) -> f32 {
-        let score = self.body.len() as f32;
+        let score = self.core.body.len() as f32;
         if score <= 1.0 {
             return 1.0;
         }
 
         if score < 5.0 {
-            return (self.num_steps as f32 * 0.1) * (2.0 as f32).powf(score) * score;
+            return (self.core.num_steps as f32 * 0.1) * (2.0 as f32).powf(score) * score;
         }
 
         let mut fitness = 1.0;
         fitness *= (2.0 as f32).powf(score) * score;
-        fitness *= self.num_steps as f32;
+        fitness *= self.core.num_steps as f32;
 
         // TODO f32 shouldn't work as it can't hold such a big value
         // This is broken
@@ -120,33 +115,7 @@ impl Game {
     }
 
     pub fn score(&self) -> usize {
-        self.body.len()
-    }
-
-    pub fn is_wall(&self, pt: Point) -> bool {
-        pt.x >= GRID_W || pt.x <= 0 || pt.y >= GRID_H || pt.y <= 0
-    }
-
-    pub fn is_snake_body(&self, pt: Point) -> bool {
-        for p in self.body.iter().skip(1) {
-            if pt == *p {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    fn update_snake_positions(&mut self) {
-        self.head.x += self.dir.value().0;
-        self.head.y += self.dir.value().1;
-
-        let mut prev_pos = self.head.clone();
-        for p in self.body.iter_mut() {
-            let new_pos = *p;
-            *p = prev_pos;
-            prev_pos = new_pos;
-        }
+        self.core.body.len()
     }
 
     /// Build a game with any arbitrary agent implementing [`Agent`].
@@ -170,17 +139,21 @@ impl Game {
         Self::with_agent(Box::new(DqnPolicyAgent::new(new_brain.clone())))
     }
 
+    // -----------------------------------------------------------------------
+    // Private helpers (GA movement model — different from GameDQN body-insert)
+    // -----------------------------------------------------------------------
+
     fn handle_food_collision(&mut self) {
-        if self.head != self.food {
-            self.no_food_steps += 1;
-            self.swallow.advance(self.body.len());
+        if self.core.head != self.core.food {
+            self.core.steps_without_food += 1;
+            self.core.swallow.advance(self.core.body.len());
             return;
         }
 
-        self.swallow.push_eating();
-        self.body.push(Point::new(self.head.x, self.head.y));
-        self.food = self.get_random_empty_pos();
-        self.no_food_steps = 0;
+        self.core.swallow.push_eating();
+        self.core.body.push(Point::new(self.core.head.x, self.core.head.y));
+        self.core.food = self.core.get_random_empty_pos();
+        self.core.steps_without_food = 0;
     }
 
     fn handle_step_limit(&mut self) {
@@ -192,135 +165,46 @@ impl Game {
             _ => NUM_SIM_STEPS,
         };
 
-        if self.no_food_steps >= limit {
+        if self.core.steps_without_food >= limit {
             self.is_complete = true;
         }
     }
 
-    fn get_random_empty_pos(&self) -> Point {
-        let mut pt = Point::rand();
+    /// GA-style movement: update head then shift body forward using prev-pos chain.
+    fn update_snake_positions(&mut self) {
+        self.core.head.x += self.core.dir.value().0;
+        self.core.head.y += self.core.dir.value().1;
 
-        let mut num_tries = 0;
-        while num_tries < 5 {
-            num_tries += 1;
-            pt = Point::rand();
-
-            if !self.body.contains(&pt) {
-                break;
-            }
+        let mut prev_pos = self.core.head.clone();
+        for p in self.core.body.iter_mut() {
+            let new_pos = *p;
+            *p = prev_pos;
+            prev_pos = new_pos;
         }
-
-        pt
     }
 
     /// Compute the 12-element absolute observation matching GameDQN::get_state
     /// exactly: (wall_dist, food_projection, body_dist) across [Left, Right, Bottom, Top].
     pub fn get_relative_state(&self) -> Vec<f64> {
-        let mut state = Vec::with_capacity(12);
-        let dirs = FourDirs::get_all_dirs();
-
-        let dx = (self.food.x - self.head.x) as f64;
-        let dy = (self.food.y - self.head.y) as f64;
-        let food_dist = (dx * dx + dy * dy).sqrt();
-        let (unit_fx, unit_fy) = if food_dist > 0.0 {
-            (dx / food_dist, dy / food_dist)
-        } else {
-            (0.0, 0.0)
-        };
-
-        for d in dirs {
-            let (wall, food_on_ray, body) = self.look_in_dir_dqn(self.head, d);
-            state.push(wall);
-            let proj = unit_fx * d.0 as f64 + unit_fy * d.1 as f64;
-            let food_val = if food_on_ray {
-                1.0
-            } else {
-                proj.max(0.0)
-            };
-            state.push(food_val);
-            state.push(body);
-        }
-
-        state
-    }
-
-    fn look_in_dir_dqn(&self, from: Point, dir: (i32, i32)) -> (f64, bool, f64) {
-        let mut distance = 1.0;
-        let mut food_found = false;
-        let mut body_distance = f64::INFINITY;
-
-        let mut current = Point::new(from.x + dir.0, from.y + dir.1);
-
-        while !self.is_wall(current) {
-            if current == self.food {
-                food_found = true;
-            }
-            if self.is_snake_body(current) && body_distance == f64::INFINITY {
-                body_distance = distance;
-            }
-
-            current.x += dir.0;
-            current.y += dir.1;
-            distance += 1.0;
-        }
-
-        let wall_dist = 1.0 / distance;
-        let body_dist = if body_distance == f64::INFINITY {
-            0.0
-        } else {
-            1.0 / body_distance
-        };
-
-        (wall_dist, food_found, body_dist)
-    }
-
-    fn look_in_dir(&self, st: Point, dir: (i32, i32)) -> (f32, bool, f32) {
-        let mut food = false;
-        // let mut body = false;
-        let mut temp_pt: Point = st;
-        let mut dist = 0;
-
-        loop {
-            if self.is_wall(temp_pt) {
-                break;
-            }
-
-            if self.food == temp_pt {
-                food = true;
-            }
-
-            if self.is_snake_body(temp_pt) {
-                // body = true;
-                break;
-            }
-
-            temp_pt = Point::new(temp_pt.x + dir.0, temp_pt.y + dir.1);
-
-            dist += 1;
-            if dist > 1000 {
-                break;
-            }
-        }
-
-        (1.0 / dist as f32, food, 1.0 / dist as f32)
+        self.core.get_relative_state()
     }
 
     pub fn render(&self) {
         for x in 0..=GRID_W {
             for y in 0..=GRID_H {
                 let pt = (x, y).into();
-                if self.is_wall(pt) {
+                if self.core.is_wall(pt) {
                     print!("□");
                     continue;
                 }
-                if self.is_snake_body(pt) {
+                if self.core.is_snake_body(pt) {
                     print!("■");
                     continue;
                 }
-                if self.head == pt {
+                if self.core.head == pt {
                     print!("■");
                 }
-                if self.food == pt {
+                if self.core.food == pt {
                     print!("●");
                 }
                 print!(".");
@@ -417,4 +301,3 @@ mod tests {
         assert_eq!(game_obs, dqn_obs);
     }
 }
-

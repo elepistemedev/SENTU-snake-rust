@@ -6,6 +6,7 @@ pub mod dqn;
 pub mod dqn_dash;
 pub mod game;
 pub mod game_dqn;
+pub mod snake_core;
 pub mod nn;
 pub mod pop;
 pub mod sim;
@@ -26,5 +27,6 @@ pub mod viz_vs;
 
 pub use agent::*;
 pub use configs::*;
+pub use snake_core::SnakeCore;
 pub use utils::*;
 
