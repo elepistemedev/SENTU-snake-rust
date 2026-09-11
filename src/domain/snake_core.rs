@@ -226,6 +226,19 @@ impl SnakeCore {
     pub fn hunger_limit(&self) -> usize {
         dynamic_step_limit(self.body.len())
     }
+
+    /// Returns the current apple freshness ratio in [0.0, 1.0].
+    /// 1.0 indicates a freshly spawned apple (0 steps without food),
+    /// linearly decaying to 0.0 at the hunger limit.
+    #[inline]
+    pub fn food_freshness(&self) -> f32 {
+        let limit = self.hunger_limit();
+        if limit == 0 {
+            return 1.0;
+        }
+        let elapsed = self.steps_without_food.min(limit);
+        (1.0 - (elapsed as f32 / limit as f32)).clamp(0.0, 1.0)
+    }
 }
 
 /// Dynamically scales the hunger step limit (max steps allowed without food) based
@@ -328,5 +341,23 @@ mod tests {
     fn get_four_dir_vision_returns_12_features() {
         let core = SnakeCore::new();
         assert_eq!(core.get_four_dir_vision().len(), 12);
+    }
+
+    #[test]
+    fn food_freshness_scales_from_one_to_zero() {
+        let mut core = SnakeCore::new();
+        assert_eq!(core.hunger_limit(), 100);
+
+        core.steps_without_food = 0;
+        assert!((core.food_freshness() - 1.0).abs() < 1e-6);
+
+        core.steps_without_food = 50;
+        assert!((core.food_freshness() - 0.5).abs() < 1e-6);
+
+        core.steps_without_food = 100;
+        assert!((core.food_freshness() - 0.0).abs() < 1e-6);
+
+        core.steps_without_food = 120;
+        assert_eq!(core.food_freshness(), 0.0);
     }
 }
