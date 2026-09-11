@@ -114,6 +114,7 @@ fn dqn_flavor(live_is_fresh: bool) -> VsFlavor {
         },
         back_label: "[ESC] Menu",
         controls_label: "[SPACE] Vel  [ESC] Menu",
+        arena_title: "DQN (VERSUS)",
     }
 }
 
@@ -347,5 +348,11 @@ mod tests {
         }
         assert!(view.is_finished());
         assert!(view.winner().is_some());
+    }
+
+    #[test]
+    fn dqn_flavor_has_expanded_arena_title() {
+        let flavor = dqn_flavor(false);
+        assert_eq!(flavor.arena_title, "DQN (VERSUS)");
     }
 }
