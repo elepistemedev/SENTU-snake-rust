@@ -26,8 +26,9 @@ use macroquad::prelude::*;
 
 use crate::champion_store;
 use crate::ui_kit::{
-    draw_badge, draw_centered_text, draw_terminal_box, ACCENT_CYAN, ACCENT_GOLD, ACCENT_GREEN,
-    ACCENT_RED, COLOR_BG, PANEL_BG, PANEL_BORDER, PANEL_BORDER_FOCUSED, TEXT_MUTED,
+    draw_badge, draw_brand_watermark, draw_centered_text, draw_terminal_box, ACCENT_CYAN,
+    ACCENT_GOLD, ACCENT_GREEN, ACCENT_RED, COLOR_BG, PANEL_BG, PANEL_BORDER, PANEL_BORDER_FOCUSED,
+    TEXT_MUTED,
 };
 use crate::view_cross_match::CrossMatchView;
 use crate::view_dqn_train::{DqnTrainView, DQN_CHAMPION_FILE};
@@ -551,6 +552,7 @@ impl App {
             AppMode::DqnVersus | AppMode::GaVersus | AppMode::DqnVsGa => self.draw_match(),
             AppMode::ThemeConfig => self.draw_theme_config(),
         }
+        draw_brand_watermark();
     }
 
     fn has_dqn_champion(&self) -> bool {
@@ -713,19 +715,19 @@ impl App {
         );
     }
 
-        fn draw_dqn_train(&mut self) {
-            if let Some(view) = &self.dqn {
-                view.draw(self.active_theme);
-                // The shell hotkey hint must not overlap the dashboard's bottom
-                // model-info panel (design D-8): it is drawn only while the compact
-                // HUD is the active target. The dashboard carries its own controls
-                // line inside the model-info panel.
-                if !view.dashboard_enabled() {
-                    let hint = "[R] fresh agent   [ESC] menu";
-                    draw_text(hint, 10.0, screen_height() - 12.0, 18.0, GRAY);
-                }
+    fn draw_dqn_train(&mut self) {
+        if let Some(view) = &self.dqn {
+            view.draw(self.active_theme);
+            // The shell hotkey hint must not overlap the dashboard's bottom
+            // model-info panel (design D-8): it is drawn only while the compact
+            // HUD is the active target. The dashboard carries its own controls
+            // line inside the model-info panel.
+            if !view.dashboard_enabled() {
+                let hint = "[R] fresh agent   [ESC] menu";
+                draw_text(hint, 220.0, screen_height() - 12.0, 18.0, GRAY);
             }
         }
+    }
 
     fn draw_ga_train(&mut self) {
         if let Some(view) = &self.ga {
