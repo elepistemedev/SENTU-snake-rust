@@ -99,8 +99,7 @@ impl SnakeCore {
         self.body.insert(0, self.head);
         self.swallow.advance(self.body.len());
         self.swallow.push_eating();
-        self.food = self.get_random_empty_pos();
-        self.steps_without_food = 0;
+        self.respawn_food();
     }
 
     /// Advance head only (used by `Game` which manages body separately).
@@ -116,11 +115,17 @@ impl SnakeCore {
     pub fn get_random_empty_pos(&self) -> Point {
         let mut pt = Point::rand();
         let mut tries = 0;
-        while tries < 10 && self.body.contains(&pt) {
+        while tries < 10 && (self.body.contains(&pt) || pt == self.food) {
             pt = Point::rand();
             tries += 1;
         }
         pt
+    }
+
+    /// Respawns food at a random empty position and resets `steps_without_food` to 0.
+    pub fn respawn_food(&mut self) {
+        self.food = self.get_random_empty_pos();
+        self.steps_without_food = 0;
     }
 
     // -------------------------------------------------------------------------
@@ -156,8 +161,8 @@ impl SnakeCore {
     /// GA-style raycast: `(wall_reciprocal, food_on_ray, body_reciprocal)` as `f32`.
     pub fn look_in_dir_ga(&self, st: Point, dir: (i32, i32)) -> (f32, bool, f32) {
         let mut food = false;
-        let mut temp_pt = st;
-        let mut dist = 0_usize;
+        let mut temp_pt = Point::new(st.x + dir.0, st.y + dir.1);
+        let mut dist = 1_usize;
 
         loop {
             if self.is_wall(temp_pt) { break; }
@@ -359,5 +364,27 @@ mod tests {
 
         core.steps_without_food = 120;
         assert_eq!(core.food_freshness(), 0.0);
+    }
+
+    #[test]
+    fn look_in_dir_ga_on_wall_does_not_divide_by_zero() {
+        let core = SnakeCore::new();
+        let (wall, _food, body) = core.look_in_dir_ga(Point::new(0, 10), (-1, 0));
+        assert!(wall.is_finite(), "wall distance must be finite even on border");
+        assert!(body.is_finite(), "body distance must be finite even on border");
+    }
+
+    #[test]
+    fn vision_when_head_on_wall_produces_finite_predictions() {
+        let mut core = SnakeCore::new();
+        core.head = Point::new(0, 10);
+        let vision = core.get_four_dir_vision();
+        let net = crate::nn::Net::new();
+        let out = net.predict(&vision);
+        for layer in &out {
+            for val in layer {
+                assert!(val.is_finite(), "prediction value must be finite, got {val}");
+            }
+        }
     }
 }

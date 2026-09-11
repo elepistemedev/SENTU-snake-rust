@@ -106,9 +106,8 @@ impl GameDQN {
             self.score += 1;
             self.core.swallow.advance(self.core.body.len());
             self.core.swallow.push_eating();
-            self.core.food = self.core.get_random_empty_pos();
+            self.core.respawn_food();
             self.prev_distance = SnakeCore::calculate_distance(&self.core.head, &self.core.food);
-            self.core.steps_without_food = 0;
             if self.core.is_snake_body(self.core.head) {
                 reward = -1.0;
                 done = true;
@@ -135,13 +134,13 @@ impl GameDQN {
             }
         }
 
-        // Anti-stagnation: end episode if no food eaten for too long.
-        // Step limit dynamically scales with snake size and only counts steps between food.
+        // Food rotting / loss of value: when the apple loses value (reaches hunger limit),
+        // spawn another apple instead of ending the episode / killing the snake.
         let step_limit = self.core.hunger_limit();
         if !done && self.core.steps_without_food >= step_limit {
+            self.core.respawn_food();
+            self.prev_distance = SnakeCore::calculate_distance(&self.core.head, &self.core.food);
             reward = -0.5;
-            done = true;
-            self.is_complete = true;
         }
 
         let next_state = self.observation();
@@ -350,7 +349,7 @@ break;
     }
 
     #[test]
-    fn episode_terminates_when_steps_without_food_exceeds_dynamic_limit() {
+    fn food_respawns_and_episode_continues_when_steps_without_food_exceeds_dynamic_limit() {
         let mut game = GameDQN::new();
         // Snake body size 15 => dynamic limit is 200 (for size 11..=20)
         game.core.body = vec![Point::new(10, 10); 15];
@@ -366,12 +365,14 @@ break;
         game.core.steps_without_food = 198;
         let (_reward, done) = game.step();
         assert!(!done, "Should not terminate at 199 steps without food for snake size 15");
+        assert_eq!(game.core.steps_without_food, 199);
 
-        // Next step makes it 200 (>= 200), should terminate
+        // Next step makes it 200 (>= 200), should respawn food and NOT terminate
         let (reward, done) = game.step();
-        assert!(done, "Should terminate at 200 steps without food for snake size 15");
-        assert!(game.is_complete);
-        assert_eq!(reward, -0.5);
+        assert!(!done, "Episode should continue after apple decays");
+        assert!(!game.is_complete, "Snake should not die when apple rots");
+        assert_eq!(reward, -0.5, "Negative penalty applied for rotting apple");
+        assert_eq!(game.core.steps_without_food, 0, "Steps without food resets upon respawn");
     }
 }
 

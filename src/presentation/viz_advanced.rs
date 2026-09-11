@@ -307,7 +307,11 @@ impl VizAdvanced {
 
         for (i, &value) in final_output.iter().enumerate() {
             let y = output_start_y + i as f32 * output_spacing;
-            let intensity = (value as f32).clamp(0.0, 1.0);
+            let intensity = if value.is_finite() {
+                (value as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             let color = Color::new(intensity, intensity * 0.3, intensity * 0.9, 1.0);
 
             // Active argmax halo and border
