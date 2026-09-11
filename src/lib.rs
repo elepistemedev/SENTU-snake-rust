@@ -18,6 +18,7 @@ pub mod view_dqn_train;
 pub mod view_dqn_versus;
 pub mod view_ga_train;
 pub mod view_ga_versus;
+pub mod ui_kit;
 pub mod viz;
 pub mod viz_advanced;
 pub mod viz_vs;
