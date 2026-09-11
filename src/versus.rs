@@ -5,6 +5,10 @@
 //! [`VersusMatch`] adds the renderable side by delegating drawing to
 //! `VizVS::draw_flavored`; it never calls into a macroquad window itself and
 //! performs no input handling (the shell owns `Esc`).
+//!
+//! [`BestOfSeries`] orchestrates a 5-game series with best-of-3 semantics:
+//! it holds the active match, tracks wins per side, and advances automatically
+//! between games after a short frame-based pause (~2 s at 60 fps).
 
 use crate::game::Game;
 use crate::nn::Net;
@@ -129,6 +133,175 @@ impl VersusMatch {
     /// by the renderer. No input handling here — the shell owns `Esc`.
     pub fn draw(&self) {
         VizVS::new().draw_flavored(&self.game1, &self.game2, &self.flavor);
+    }
+
+    /// Draw the arena with a series HUD overlay (game number + win pips).
+    ///
+    /// Used by [`BestOfSeries`] so it can pass the series scoreboard to the
+    /// renderer without exposing `game1`/`game2`/`flavor` as public fields.
+    pub fn draw_with_series_info(&self, info: &SeriesInfo) {
+        VizVS::new().draw_series(&self.game1, &self.game2, &self.flavor, info);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BestOfSeries
+// ---------------------------------------------------------------------------
+
+/// Number of frames to pause between games (~2 s at 60 fps).
+pub const SERIES_PAUSE_FRAMES: u32 = 120;
+/// Total games in a series.
+pub const SERIES_GAMES: usize = 5;
+/// Wins needed to claim the series (best-of-3 within 5).
+pub const SERIES_WINS_NEEDED: usize = 3;
+
+/// A snapshot of the series scoreboard, suitable for the HUD.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeriesInfo {
+    /// Games completed so far (0..=5).
+    pub games_played: usize,
+    /// Total games in the series.
+    pub total_games: usize,
+    /// Left-side wins accumulated.
+    pub left_wins: usize,
+    /// Right-side wins accumulated.
+    pub right_wins: usize,
+    /// Tie games accumulated.
+    pub ties: usize,
+    /// True once the series has a final champion (or all 5 games played).
+    pub is_over: bool,
+}
+
+/// Orchestrates a 5-game series (best-of-3) with automatic transitions.
+///
+/// `B` is a callable `FnMut() -> VersusMatch` that constructs a fresh match
+/// for every game. After each game finishes a short `pause_frames` countdown
+/// runs before the next match is built. The series ends early the moment one
+/// side accumulates [`SERIES_WINS_NEEDED`] wins.
+pub struct BestOfSeries<B: FnMut() -> VersusMatch> {
+    builder: B,
+    current: VersusMatch,
+    left_wins: usize,
+    right_wins: usize,
+    ties: usize,
+    games_played: usize,
+    /// Frames remaining in the between-game pause; `0` = not pausing.
+    pause_remaining: u32,
+}
+
+impl<B: FnMut() -> VersusMatch> BestOfSeries<B> {
+    /// Start a fresh series using `builder` to construct each game.
+    /// The first match is built immediately.
+    pub fn new(mut builder: B) -> Self {
+        let current = builder();
+        Self {
+            builder,
+            current,
+            left_wins: 0,
+            right_wins: 0,
+            ties: 0,
+            games_played: 0,
+            pause_remaining: 0,
+        }
+    }
+
+    /// Advance one frame:
+    /// * If the current game just finished, record the result and start the
+    ///   between-game pause.
+    /// * While pausing, count down and, when the counter reaches zero, build
+    ///   the next match (unless the series is already over).
+    /// * Otherwise step the current match normally.
+    pub fn tick(&mut self) {
+        if self.is_series_over() {
+            // Nothing to do once the series has ended.
+            return;
+        }
+
+        if self.pause_remaining > 0 {
+            self.pause_remaining -= 1;
+            if self.pause_remaining == 0 && !self.is_series_over() {
+                // Pause elapsed — start the next game.
+                self.current = (self.builder)();
+            }
+            return;
+        }
+
+        // Normal play: step the current game.
+        if !self.current.is_finished() {
+            self.current.tick();
+        }
+
+        // Record result the moment the game ends.
+        if self.current.is_finished() && self.games_played < SERIES_GAMES {
+            self.games_played += 1;
+            match self.current.winner() {
+                Some(Winner::Left) => self.left_wins += 1,
+                Some(Winner::Right) => self.right_wins += 1,
+                Some(Winner::Tie) | None => self.ties += 1,
+            }
+            // Begin pause only if there are more games to play.
+            if !self.is_series_over() {
+                self.pause_remaining = SERIES_PAUSE_FRAMES;
+            }
+        }
+    }
+
+    /// True when the series cannot produce any more games:
+    /// either a side reached [`SERIES_WINS_NEEDED`] wins or all 5 were played.
+    pub fn is_series_over(&self) -> bool {
+        self.left_wins >= SERIES_WINS_NEEDED
+            || self.right_wins >= SERIES_WINS_NEEDED
+            || self.games_played >= SERIES_GAMES
+    }
+
+    /// The series champion: `Some(Winner::Left/Right)` when one side has
+    /// [`SERIES_WINS_NEEDED`] wins; `Some(Winner::Tie)` when all 5 games are
+    /// played with equal wins; `None` while the series is still running.
+    pub fn series_winner(&self) -> Option<Winner> {
+        if self.left_wins >= SERIES_WINS_NEEDED {
+            return Some(Winner::Left);
+        }
+        if self.right_wins >= SERIES_WINS_NEEDED {
+            return Some(Winner::Right);
+        }
+        if self.games_played >= SERIES_GAMES {
+            return Some(if self.left_wins > self.right_wins {
+                Winner::Left
+            } else if self.right_wins > self.left_wins {
+                Winner::Right
+            } else {
+                Winner::Tie
+            });
+        }
+        None
+    }
+
+    /// The current (or last-played) match. Always valid.
+    pub fn current_match(&self) -> &VersusMatch {
+        &self.current
+    }
+
+    /// True while the between-game countdown is running.
+    pub fn is_pausing(&self) -> bool {
+        self.pause_remaining > 0
+    }
+
+    /// A scoreboard snapshot for the renderer HUD.
+    pub fn series_info(&self) -> SeriesInfo {
+        SeriesInfo {
+            games_played: self.games_played,
+            total_games: SERIES_GAMES,
+            left_wins: self.left_wins,
+            right_wins: self.right_wins,
+            ties: self.ties,
+            is_over: self.is_series_over(),
+        }
+    }
+
+    /// Draw the active match with the series HUD overlay
+    /// (delegates to [`VersusMatch::draw_with_series_info`]).
+    pub fn draw(&self) {
+        self.current.draw_with_series_info(&self.series_info());
     }
 }
 

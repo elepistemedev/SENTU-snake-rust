@@ -91,10 +91,10 @@ impl GameDQN {
         } else if self.head == self.food {
             // Ate food: body grows by retaining previous tail
             self.body.insert(0, self.head);
-            reward = 1.0;
+            reward = 2.0;
             self.score += 1;
-            self.swallow.push_eating();
             self.swallow.advance(self.body.len());
+            self.swallow.push_eating();
             self.food = self.get_random_empty_pos();
             self.prev_distance = Self::calculate_distance(&self.head, &self.food);
             self.steps_without_food = 0;
@@ -118,7 +118,7 @@ impl GameDQN {
                 if new_distance < self.prev_distance {
                     reward = 0.1; // Reward for getting closer
                 } else {
-                    reward = -0.1; // Penalty for getting farther
+                    reward = -0.15; // Penalty for getting farther
                 }
                 self.prev_distance = new_distance;
             }
@@ -158,11 +158,26 @@ impl GameDQN {
     fn get_state(&self) -> Vec<f64> {
         let mut state = Vec::new();
         let dirs = FourDirs::get_all_dirs();
+
+        let dx = (self.food.x - self.head.x) as f64;
+        let dy = (self.food.y - self.head.y) as f64;
+        let food_dist = (dx * dx + dy * dy).sqrt();
+        let (unit_fx, unit_fy) = if food_dist > 0.0 {
+            (dx / food_dist, dy / food_dist)
+        } else {
+            (0.0, 0.0)
+        };
         
         for d in dirs {
-            let (wall, food, body) = self.look_in_dir(self.head, d);
+            let (wall, food_on_ray, body) = self.look_in_dir(self.head, d);
             state.push(wall as f64);
-            state.push(if food { 1.0 } else { 0.0 });
+            let proj = unit_fx * d.0 as f64 + unit_fy * d.1 as f64;
+            let food_val = if food_on_ray {
+                1.0
+            } else {
+                proj.max(0.0)
+            };
+            state.push(food_val);
             state.push(body as f64);
         }
         
@@ -247,7 +262,7 @@ mod tests {
             let food = first[group * 3 + 1];
             let body = first[group * 3 + 2];
             assert!(wall > 0.0 && wall <= 1.0, "wall reciprocal in (0,1], group {group}");
-            assert!(food == 0.0 || food == 1.0, "food must be a 0.0/1.0 bit, group {group}");
+            assert!(food >= 0.0 && food <= 1.0, "food signal in [0,1], group {group}");
             assert!(body >= 0.0 && body <= 1.0, "body reciprocal in [0,1], group {group}");
         }
 
@@ -278,6 +293,21 @@ mod tests {
         // Left-turn and right-turn groups see no food.
         assert_eq!(state[4], 0.0, "left-turn food must be 0");
         assert_eq!(state[7], 0.0, "right-turn food must be 0");
+    }
+
+    #[test]
+    fn observation_directional_food_sensor_detects_diagonal_food() {
+        let mut game = GameDQN::new();
+        game.dir = FourDirs::Top;
+        game.head = Point::new(10, 10);
+        // Place food diagonally top-left
+        game.food = Point::new(5, 5);
+
+        let state = game.observation();
+        // Forward group = index 1, Left group = index 4, Right group = index 7
+        assert!(state[1] > 0.6, "forward sector must detect top-left food");
+        assert!(state[4] > 0.6, "left sector must detect top-left food");
+        assert_eq!(state[7], 0.0, "right sector must have 0 food signal for top-left food");
     }
 
     #[test]

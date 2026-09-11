@@ -100,6 +100,29 @@ impl Net {
         outputs
     }
 
+    /// Forward pass with linear (identity) activation on the final layer.
+    /// Used by Q-learning / DQN to estimate unconstrained Q-values.
+    pub fn predict_linear_output(&self, inputs: &Vec<f64>) -> Vec<Vec<f64>> {
+        if inputs.len() != self.n_inputs {
+            panic!(
+                "Bad input size, expected {:?} but got {:?}",
+                self.n_inputs,
+                inputs.len()
+            );
+        }
+
+        let mut outputs = Vec::new();
+        outputs.push(inputs.clone());
+        let last_idx = self.layers.len().saturating_sub(1);
+        for (layer_index, layer) in self.layers.iter().enumerate() {
+            let is_last = layer_index == last_idx;
+            let layer_results = layer.predict_with_activation(&outputs[layer_index], !is_last);
+            outputs.push(layer_results);
+        }
+
+        outputs
+    }
+
     pub fn mutate(&mut self) {
         self.layers.iter_mut().for_each(|l| l.mutate());
     }
@@ -140,9 +163,14 @@ impl Layer {
     }
 
     fn predict(&self, inputs: &Vec<f64>) -> Vec<f64> {
+        self.predict_with_activation(inputs, true)
+    }
+
+    pub fn predict_with_activation(&self, inputs: &Vec<f64>, use_sigmoid: bool) -> Vec<f64> {
         let mut layer_results = Vec::new();
         for node in self.nodes.iter() {
-            layer_results.push(self.sigmoid(self.dot_prod(&node, &inputs)));
+            let sum = self.dot_prod(&node, &inputs);
+            layer_results.push(if use_sigmoid { self.sigmoid(sum) } else { sum });
         }
 
         layer_results

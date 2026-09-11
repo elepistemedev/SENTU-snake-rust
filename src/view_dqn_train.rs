@@ -383,6 +383,7 @@ mod tests {
 
     /// Tolerance comparison for nets that went through serde JSON: f64 decimal
     /// round trips are not bit-exact at the last ulp (see slice-1 evidence).
+    #[allow(dead_code)]
     fn nets_approx_eq(a: &Net, b: &Net) -> bool {
         if a.layers.len() != b.layers.len() {
             return false;
