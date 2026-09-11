@@ -177,6 +177,7 @@ impl VizAdvanced {
             tile_size,
             theme,
             colors.food,
+            best_game.core.food_freshness(),
         );
 
         // Draw all snakes (reverse order so best is on top)

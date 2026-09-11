@@ -951,6 +951,7 @@ impl App {
             cell_size,
             preview_theme,
             preview_colors.food,
+            1.0,
         );
 
         // Snake preview (head at (5,5), body 1 at (4,5), corner at (3,5), body 2 at (3,6), tail at (3,7))
