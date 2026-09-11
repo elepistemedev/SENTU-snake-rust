@@ -1,8 +1,8 @@
 //! Lógica del juego de la serpiente
 //! Acciones de la serpiente desde una red neuronal
 
+use crate::agent::{Agent, DqnPolicyAgent, GaAgent};
 use crate::nn::Net;
-use crate::utils::{relative_dir, rotate_vision_to_relative};
 use crate::*;
 
 #[derive(Clone)]
@@ -12,14 +12,12 @@ pub struct Game {
     pub food: Point,
     pub dir: FourDirs,
     pub brain: Net,
+    pub agent: Option<Box<dyn Agent>>,
 
     pub is_complete: bool,
     pub swallow: crate::render_snake::SwallowTracker,
     no_food_steps: usize,
     pub num_steps: usize,
-    /// When true the brain is a DQN relative-action net (9-input, 3-output).
-    /// When false (default) the brain is a GA absolute-action net (12-input, 4-output).
-    brain_relative: bool,
 }
 
 impl Game {
@@ -27,18 +25,19 @@ impl Game {
         let mut body = Vec::new();
         let head = Point::new(GRID_W / 2, GRID_H / 2);
         body.push(head.clone());
+        let brain = Net::new();
 
         Self {
             body,
             head,
             food: Point::rand(),
             dir: FourDirs::get_rand_dir(),
-            brain: Net::new(),
+            brain: brain.clone(),
+            agent: Some(Box::new(GaAgent::new(brain))),
             is_complete: false,
             swallow: crate::render_snake::SwallowTracker::new(),
             no_food_steps: 0,
             num_steps: 0,
-            brain_relative: false,
         }
     }
 
@@ -58,14 +57,13 @@ impl Game {
     }
 
     pub fn get_net_output(&self) -> Vec<Vec<f64>> {
-        if self.brain_relative {
-            let abs = self.get_relative_state();
-            let vision = rotate_vision_to_relative(&abs, self.dir);
-            self.brain.predict(&vision)
-        } else {
-            let vision = self.get_snake_vision();
-            self.brain.predict(&vision)
+        if let Some(agent) = &self.agent {
+            if let Some(out) = agent.network_output(self) {
+                return out;
+            }
         }
+        let vision = self.get_snake_vision();
+        self.brain.predict(&vision)
     }
 
     pub fn get_net(&self) -> &Net {
@@ -73,46 +71,11 @@ impl Game {
     }
 
     fn get_brain_output(&self) -> FourDirs {
-        if self.brain_relative {
-            let abs = self.get_relative_state();
-            let vision = rotate_vision_to_relative(&abs, self.dir);
-            let nn_out = self.brain.predict(&vision).pop().unwrap();
-            let max_index = nn_out
-                .iter()
-                .enumerate()
-                .max_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(i, _)| i)
-                .unwrap();
-            relative_dir(self.dir, max_index)
+        if let Some(agent) = &self.agent {
+            agent.decide_direction(self)
         } else {
-            // Legacy GA path — byte-identical to pre-change.
-            let vision = self.get_snake_vision();
-            let nn_out = self.brain.predict(&vision).pop().unwrap();
-            let max_index = nn_out
-                .iter()
-                .enumerate()
-                .max_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(i, _)| i)
-                .unwrap();
-            let mut dir = match max_index {
-                0 => FourDirs::Left,
-                1 => FourDirs::Right,
-                2 => FourDirs::Bottom,
-                _ => FourDirs::Top,
-            };
-
-            if self.dir.is_horizontal() {
-                if dir.is_horizontal() && self.dir != dir {
-            dir = self.dir;
-                }
-            }
-            if self.dir.is_vertical() {
-                if dir.is_vertical() && self.dir != dir {
-            dir = self.dir;
-                }
-            }
-
-            dir
+            let ga = GaAgent::new(self.brain.clone());
+            ga.decide_direction(self)
         }
     }
 
@@ -123,7 +86,7 @@ impl Game {
         self.get_four_dir_vision()
     }
 
-    fn get_four_dir_vision(&self) -> Vec<f64> {
+    pub fn get_four_dir_vision(&self) -> Vec<f64> {
         let mut vision = Vec::new();
         let dirs = FourDirs::get_all_dirs();
 
@@ -186,22 +149,25 @@ impl Game {
         }
     }
 
-    pub fn with_brain(new_brain: &Net) -> Self {
+    /// Build a game with any arbitrary agent implementing [`Agent`].
+    pub fn with_agent(agent: Box<dyn Agent>) -> Self {
         let mut new_game = Self::new();
-        new_game.brain = new_brain.clone();
-
+        if let Some(net) = agent.network() {
+            new_game.brain = net.clone();
+        }
+        new_game.agent = Some(agent);
         new_game
+    }
+
+    pub fn with_brain(new_brain: &Net) -> Self {
+        Self::with_agent(Box::new(GaAgent::new(new_brain.clone())))
     }
 
     /// Build a game whose brain is a DQN relative-action net (9-input,
     /// 3-output): vision and actions are interpreted in the heading-relative
     /// frame. Used by the versus/cross arena for DQN players.
     pub fn with_relative_brain(new_brain: &Net) -> Self {
-        let mut new_game = Self::new();
-        new_game.brain = new_brain.clone();
-        new_game.brain_relative = true;
-
-        new_game
+        Self::with_agent(Box::new(DqnPolicyAgent::new(new_brain.clone())))
     }
 
     fn handle_food_collision(&mut self) {
