@@ -1,7 +1,7 @@
 //! Game logic adapted for DQN training
 //! Single agent learning through experience
 
-use crate::dqn::{DQNAgent, Experience, DQN_STEP_LIMIT};
+use crate::dqn::{DQNAgent, Experience};
 use crate::snake_core::SnakeCore;
 use crate::utils::{relative_dir, rotate_vision_to_relative};
 
@@ -135,14 +135,10 @@ impl GameDQN {
             }
         }
 
-        // Check step limit
-        if self.steps >= DQN_STEP_LIMIT {
-            done = true;
-            self.is_complete = true;
-        }
-
-        // Anti-stagnation: end episode if no food eaten for too long
-        if !done && self.core.steps_without_food >= DQN_STEP_LIMIT {
+        // Anti-stagnation: end episode if no food eaten for too long.
+        // Step limit dynamically scales with snake size and only counts steps between food.
+        let step_limit = self.core.hunger_limit();
+        if !done && self.core.steps_without_food >= step_limit {
             reward = -0.5;
             done = true;
             self.is_complete = true;
@@ -336,4 +332,47 @@ break;
         assert_eq!(game.agent.get_epsilon(), 0.28);
         assert_eq!(game.agent.q_network.layers.len(), net.layers.len());
     }
+
+    #[test]
+    fn episode_can_exceed_step_limit_if_eating() {
+        let mut game = GameDQN::new();
+        // Total steps can reach high numbers (e.g. 500) as long as food was eaten recently
+        game.steps = 499;
+        game.core.steps_without_food = 5;
+        // Make sure snake won't hit wall or body
+        game.core.head = Point::new(10, 10);
+        game.core.body = vec![Point::new(10, 10), Point::new(9, 10)];
+        game.core.dir = FourDirs::Right;
+        let (_, done) = game.step();
+        assert!(!done, "Episode should not end if the snake has eaten recently");
+        assert!(!game.is_complete, "game.is_complete should be false");
+        assert_eq!(game.steps, 500);
+    }
+
+    #[test]
+    fn episode_terminates_when_steps_without_food_exceeds_dynamic_limit() {
+        let mut game = GameDQN::new();
+        // Snake body size 15 => dynamic limit is 200 (for size 11..=20)
+        game.core.body = vec![Point::new(10, 10); 15];
+        game.score = 14;
+        assert_eq!(game.core.hunger_limit(), 200);
+
+        game.core.head = Point::new(10, 10);
+        game.core.dir = FourDirs::Right;
+        // Put food far away so it doesn't eat
+        game.core.food = Point::new(1, 1);
+
+        // At 198 steps without food, one step makes it 199 (less than 200)
+        game.core.steps_without_food = 198;
+        let (_reward, done) = game.step();
+        assert!(!done, "Should not terminate at 199 steps without food for snake size 15");
+
+        // Next step makes it 200 (>= 200), should terminate
+        let (reward, done) = game.step();
+        assert!(done, "Should terminate at 200 steps without food for snake size 15");
+        assert!(game.is_complete);
+        assert_eq!(reward, -0.5);
+    }
 }
+
+

@@ -157,14 +157,7 @@ impl Game {
     }
 
     fn handle_step_limit(&mut self) {
-        let limit = match self.score() {
-            score if score > 10 => NUM_SIM_STEPS * 2,
-            score if score > 20 => NUM_SIM_STEPS * 3,
-            score if score > 30 => NUM_SIM_STEPS * 5,
-            score if score > 80 => NUM_SIM_STEPS * 8,
-            _ => NUM_SIM_STEPS,
-        };
-
+        let limit = self.core.hunger_limit();
         if self.core.steps_without_food >= limit {
             self.is_complete = true;
         }
@@ -300,4 +293,34 @@ mod tests {
         assert_eq!(game_obs[8], 0.0, "Body dist right must be 0.0");
         assert_eq!(game_obs, dqn_obs);
     }
+
+    #[test]
+    fn handle_step_limit_respects_dynamic_thresholds() {
+        let dummy_net = Net::new();
+        let mut game = Game::with_relative_brain(&dummy_net);
+
+        // Body len = 1 (start): hunger limit is 100
+        assert_eq!(game.core.hunger_limit(), 100);
+        game.core.steps_without_food = 99;
+        game.handle_step_limit();
+        assert!(!game.is_complete);
+
+        game.core.steps_without_food = 100;
+        game.handle_step_limit();
+        assert!(game.is_complete);
+
+        // Reset and test higher size (snake size = 25 -> limit is 300)
+        game.is_complete = false;
+        game.core.body = vec![Point::new(0, 0); 25];
+        assert_eq!(game.core.hunger_limit(), 300);
+
+        game.core.steps_without_food = 299;
+        game.handle_step_limit();
+        assert!(!game.is_complete);
+
+        game.core.steps_without_food = 300;
+        game.handle_step_limit();
+        assert!(game.is_complete);
+    }
 }
+

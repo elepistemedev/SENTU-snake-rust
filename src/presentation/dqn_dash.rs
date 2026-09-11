@@ -18,10 +18,8 @@
 //! - [`output_intensity`] — clamps the sigmoid q-network output (already in
 //!   (0,1)) to the [0,1] domain the output-node color mapping consumes
 //!   (`draw_neural_network` colors each of the LEFT/RIGHT/BOTTOM/TOP nodes).
-//! - [`score_bar_fraction`] — the SCORE/BEST bars' fill fraction over the
-//!   documented DQN episode bound `FULL_BAR = (NUM_SIM_STEPS * 2) as f32`
-//!   (200.0 today; `score <= steps <= 200` in `GameDQN`), clamped to [0,1].
-//!   The GA reference's hardcoded `/20` denominator is NOT copied.
+//! - [`score_bar_fraction`] — the SCORE/BEST bars' fill fraction normalized
+//!   against the session best score or baseline target (20), clamped to [0,1].
 //! - `ema_update`/`argmax_index`/`loss_ema`/`target_updates` viven en
 //!   `crate::dqn` (testeadas); este módulo solo las consume.
 //!
@@ -32,7 +30,7 @@
 use crate::configs::{GRID_H, GRID_W};
 use crate::dqn::{
     argmax_index, BATCH_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_INP_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE,
-    DQN_STEP_LIMIT, EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE,
+    EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE,
     REPLAY_BUFFER_SIZE,
 };
 use crate::game_dqn::GameDQN;
@@ -116,16 +114,11 @@ pub fn output_intensity(value: f64) -> f64 {
     value.clamp(0.0, 1.0)
 }
 
-/// Pure SCORE/BEST bar fraction over the documented DQN episode bound (design
-/// §3): `FULL_BAR = DQN_STEP_LIMIT as f32` = 500.0 — `GameDQN::step`
-/// forces `done` at `steps >= DQN_STEP_LIMIT` and every food eaten consumes a
-/// step, so `score <= steps <= 500`. Clamped to [0,1]; the GA reference's `/20`
-/// denominator is never used on the DQN dashboard. Consumed by
-/// [`crate::dqn_dash`]'s `draw_stats_panels` to size the "SCORE" and "BEST"
-/// bars.
-fn score_bar_fraction(score: usize) -> f32 {
-    let full_bar = DQN_STEP_LIMIT as f32;
-    (score as f32 / full_bar).clamp(0.0, 1.0)
+/// Pure SCORE/BEST bar fraction normalized against the session best score or baseline target (20).
+/// Clamped to [0,1].
+pub fn score_bar_fraction(score: usize, target: usize) -> f32 {
+    let full = (target.max(20)) as f32;
+    (score as f32 / full).clamp(0.0, 1.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +333,7 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
         y,
         panel_w - 32.0,
         "Batch / Gamma:",
-        &format!("{} / {:.2}", BATCH_SIZE, GAMMA),
+        &format!("{} / {:.2}", *BATCH_SIZE, *GAMMA),
     );
     y += 24.0;
     draw_stat_row(
@@ -348,7 +341,7 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
         y,
         panel_w - 32.0,
         "Learning Rate:",
-        &format!("{}", LEARNING_RATE),
+        &format!("{}", *LEARNING_RATE),
     );
     y += 24.0;
     draw_stat_row(
@@ -356,15 +349,15 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
         y,
         panel_w - 32.0,
         "Epsilon Schedule:",
-        &format!("{:.2} -> {:.2} (x{:.3})", EPSILON_START, EPSILON_END, EPSILON_DECAY),
+        &format!("{:.2} -> {:.2} (x{:.3})", *EPSILON_START, *EPSILON_END, *EPSILON_DECAY),
     );
     y += 24.0;
     draw_stat_row(
         panel_x + 16.0,
         y,
         panel_w - 32.0,
-        "Step Limit:",
-        &format!("{}", DQN_STEP_LIMIT),
+        "Límite Hambre:",
+        "100-800 (Dinámico)",
     );
 
     // Separator before controls
@@ -442,7 +435,7 @@ fn draw_stats_panels(
     y += 19.0;
     draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Loss:", &format!("{:.5}", game.agent.loss_ema()));
     y += 19.0;
-    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Buffer:", &format!("{}/{}", game.agent.replay_buffer.len(), REPLAY_BUFFER_SIZE));
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Buffer:", &format!("{}/{}", game.agent.replay_buffer.len(), *REPLAY_BUFFER_SIZE));
     y += 19.0;
     draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Target Updates:", &format!("{}", game.agent.target_updates()));
     y += 19.0;
@@ -451,14 +444,23 @@ fn draw_stats_panels(
     // RUN STATS
     let run_y = stats_y + stats_h + 15.0;
     draw_terminal_box(panel_x, run_y, panel_w, run_h, "RUN STATS", false);
-    y = run_y + 48.0;
+    y = run_y + 36.0;
     draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Score:", &format!("{}", game.score));
-    y += 24.0;
-    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Steps:", &format!("{}", game.steps));
+    y += 20.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Steps Totales:", &format!("{}", game.steps));
+    y += 20.0;
+    let step_limit = game.core.hunger_limit();
+    draw_stat_row(
+        panel_x + 16.0,
+        y,
+        panel_w - 32.0,
+        "Sin Comer:",
+        &format!("{}/{}", game.core.steps_without_food, step_limit),
+    );
 
     // SCORE progress bar
     let score_bar_y = run_y + run_h + 15.0;
-    let score_pct = score_bar_fraction(game.score);
+    let score_pct = score_bar_fraction(game.score, best_score);
     let score_label = format!("SCORE: {}", game.score);
     draw_progress_bar(
         panel_x,
@@ -472,7 +474,7 @@ fn draw_stats_panels(
 
     // BEST progress bar
     let best_bar_y = score_bar_y + bar_h + 10.0;
-    let best_pct = score_bar_fraction(best_score);
+    let best_pct = if best_score > 0 { score_bar_fraction(best_score, best_score) } else { 0.0 };
     let best_label = format!("BEST: {}", best_score);
     draw_progress_bar(
         panel_x,
@@ -625,19 +627,12 @@ mod tests {
     // "score-bar fractions are clamped against the documented episode bound") ---
 
     #[test]
-    fn score_bar_fraction_clamps_against_the_documented_episode_bound() {
-        let full_bar = DQN_STEP_LIMIT as f32;
-        assert_eq!(full_bar, 500.0, "documented episode bound is 500 steps");
-        assert_eq!(score_bar_fraction(0), 0.0);
-        assert_eq!(
-            score_bar_fraction(full_bar as usize),
-            1.0,
-            "a score equal to the bound fills the bar"
-        );
-        assert_eq!(
-            score_bar_fraction(full_bar as usize + 50),
-            1.0,
-            "scores above the bound clamp to 1.0"
-        );
+    fn score_bar_fraction_scales_against_target() {
+        assert_eq!(score_bar_fraction(0, 20), 0.0);
+        assert_eq!(score_bar_fraction(10, 20), 0.5);
+        assert_eq!(score_bar_fraction(20, 20), 1.0);
+        assert_eq!(score_bar_fraction(25, 20), 1.0, "scores above target clamp to 1.0");
+        // Minimum target baseline is 20
+        assert_eq!(score_bar_fraction(10, 5), 0.5);
     }
 }

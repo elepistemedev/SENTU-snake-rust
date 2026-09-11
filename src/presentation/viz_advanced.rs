@@ -98,6 +98,10 @@ impl VizAdvanced {
         }
 
         // Right column: Stats + Charts
+        let (steps_without_food, hunger_limit) = games
+            .first()
+            .map(|g| (g.core.steps_without_food, g.core.hunger_limit()))
+            .unwrap_or((0, 100));
         self.draw_stats_panels(
             gen,
             max_score,
@@ -106,6 +110,8 @@ impl VizAdvanced {
             current_score,
             fitness,
             steps,
+            steps_without_food,
+            hunger_limit,
             screen_w,
             screen_h,
         );
@@ -336,6 +342,8 @@ impl VizAdvanced {
         current_score: usize,
         fitness: f32,
         steps: usize,
+        steps_without_food: usize,
+        hunger_limit: usize,
         screen_w: f32,
         screen_h: f32,
     ) {
@@ -348,7 +356,7 @@ impl VizAdvanced {
         }
 
         let stats_h = 160.0;
-        let run_h = 115.0;
+        let run_h = 135.0;
         let bar_h = 55.0;
         let fixed_total = 20.0 + stats_h + 15.0 + run_h + 15.0 + bar_h + 10.0 + bar_h + 20.0;
         let remaining_h = (screen_h - fixed_total - 20.0).max(120.0);
@@ -387,8 +395,9 @@ impl VizAdvanced {
             ("Puntuación:", format!("{}", current_score)),
             ("Fitness:", format!("{:.1}", fitness)),
             ("Pasos:", format!("{}", steps)),
+            ("Sin Comer:", format!("{}/{}", steps_without_food, hunger_limit)),
         ];
-        let mut run_row_y = y + 46.0;
+        let mut run_row_y = y + 42.0;
         for (lbl, val) in run_rows {
             draw_text(lbl, panel_x + 18.0, run_row_y, TEXT_SIZE, TEXT_MUTED);
             let val_dims = measure_text(&val, None, TEXT_SIZE as u16, 1.0);
@@ -399,13 +408,14 @@ impl VizAdvanced {
                 TEXT_SIZE,
                 TEXT_COLOR,
             );
-            run_row_y += 24.0;
+            run_row_y += 22.0;
         }
 
-        // 3. VIZ SCORE Bar (normalized over step limit)
+        // 3. VIZ SCORE Bar (normalized against session record or base target 20)
         y += run_h + 15.0;
-        let score_fraction = (current_score as f32 / NUM_SIM_STEPS as f32).clamp(0.0, 1.0);
-        let score_label = format!("Score: {} / {}", current_score, NUM_SIM_STEPS);
+        let target = (max_score.max(20)) as f32;
+        let score_fraction = (current_score as f32 / target).clamp(0.0, 1.0);
+        let score_label = format!("Score: {}", current_score);
         draw_progress_bar(
             panel_x,
             y,
@@ -418,8 +428,12 @@ impl VizAdvanced {
 
         // 4. MAX SCORE Bar
         y += bar_h + 10.0;
-        let max_fraction = (max_score as f32 / NUM_SIM_STEPS as f32).clamp(0.0, 1.0);
-        let max_label = format!("Récord: {} / {}", max_score, NUM_SIM_STEPS);
+        let max_fraction = if max_score > 0 {
+            (max_score as f32 / target).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let max_label = format!("Récord: {}", max_score);
         draw_progress_bar(
             panel_x,
             y,
@@ -486,11 +500,11 @@ impl VizAdvanced {
         draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "ALGORITMO GENÉTICO", false);
 
         let rows = [
-            ("Población Agentes:", format!("{}", NUM_GAMES_PER_STREAM)),
-            ("Límite de Pasos:", format!("{}", NUM_SIM_STEPS)),
+            ("Población Agentes:", format!("{}", *NUM_GAMES_PER_STREAM)),
+            ("Límite Hambre:", "100-800 (Dinámico)".to_string()),
             (
                 "Tasa Mutación:",
-                format!("{:.1}%", BRAIN_MUTATION_RATE * 100.0),
+                format!("{:.1}%", *BRAIN_MUTATION_RATE * 100.0),
             ),
             (
                 "Arquitectura:",
@@ -499,7 +513,7 @@ impl VizAdvanced {
                     INP_LAYER_SIZE, HIDDEN_LAYER_SIZE, OUTPUT_LAYER_SIZE
                 ),
             ),
-            ("Streams Simulación:", format!("{}", NUM_STREAMS)),
+            ("Streams Simulación:", format!("{}", *NUM_STREAMS)),
         ];
 
         let mut y = panel_y + 48.0;
