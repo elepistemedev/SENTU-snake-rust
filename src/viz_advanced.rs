@@ -537,6 +537,35 @@ impl VizAdvanced {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Free-standing rendering entry point (Fase 4)
+// ---------------------------------------------------------------------------
+
+/// Render the GA advanced training dashboard from a read-only [`SimSnapshot`].
+///
+/// Replaces `Simulation::draw_advanced` (which required macroquad inside the
+/// domain module). The caller (`GaTrainView`) owns `viz` and passes it here.
+pub fn draw_sim(
+    snap: &crate::sim::SimSnapshot<'_>,
+    viz: &VizAdvanced,
+    theme: crate::theme::GameTheme,
+) {
+    clear_background(crate::ui_kit::COLOR_BG);
+    if !snap.top_games.is_empty() {
+        viz.draw(
+            &snap.top_games,
+            snap.gen_count,
+            snap.best_ever,
+            snap.gen_max,
+            snap.elapsed_secs,
+            snap.champ_score,
+            snap.champ_fitness,
+            snap.champ_steps,
+            theme,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
