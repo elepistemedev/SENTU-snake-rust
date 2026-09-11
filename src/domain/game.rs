@@ -13,6 +13,8 @@ pub struct Game {
     pub brain: Net,
     pub agent: Option<Box<dyn Agent>>,
     pub is_complete: bool,
+    /// Cumulative score from eaten food based on freshness at the time of eating.
+    pub food_freshness_score: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,7 @@ impl Game {
             brain: brain.clone(),
             agent: Some(Box::new(GaAgent::new(brain))),
             is_complete: false,
+            food_freshness_score: 0.0,
         }
     }
 
@@ -96,22 +99,24 @@ impl Game {
     }
 
     pub fn fitness(&self) -> f32 {
-        let score = self.core.body.len() as f32;
-        if score <= 1.0 {
-            return 1.0;
+        let apples = self.core.body.len().saturating_sub(1);
+        let total_steps = self.core.num_steps as f32;
+
+        if apples == 0 {
+            // Gen 0: Premia supervivencia y navegación sin chocar
+            return (1.0 + total_steps).max(1.0);
         }
 
-        if score < 5.0 {
-            return (self.core.num_steps as f32 * 0.1) * (2.0 as f32).powf(score) * score;
-        }
+        // Puntuación acumulada de manzanas según su frescura al comerlas
+        // Multiplicador progresivo según longitud corporal (crecimiento cuadrático/polinomial)
+        let food_factor = 1.0 + (apples as f32 * 0.1);
+        let food_fitness = self.food_freshness_score * food_factor;
 
-        let mut fitness = 1.0;
-        fitness *= (2.0 as f32).powf(score) * score;
-        fitness *= self.core.num_steps as f32;
+        // Supervivencia cautelosa: suma pasos pero descuenta la mitad de los pasos
+        // ociosos sin comer al momento de morir (no premia la inanición vacía).
+        let survival = total_steps - (self.core.steps_without_food as f32 * 0.5);
 
-        // TODO f32 shouldn't work as it can't hold such a big value
-        // This is broken
-        fitness
+        (food_fitness + survival).max(1.0)
     }
 
     pub fn score(&self) -> usize {
@@ -149,6 +154,11 @@ impl Game {
             self.core.swallow.advance(self.core.body.len());
             return;
         }
+
+        // Calculate freshness of food before resetting steps_without_food
+        let freshness = self.core.food_freshness();
+        let apple_value = 400.0 + 600.0 * freshness;
+        self.food_freshness_score += apple_value;
 
         self.core.swallow.push_eating();
         self.core.body.push(Point::new(self.core.head.x, self.core.head.y));
@@ -321,6 +331,78 @@ mod tests {
         game.core.steps_without_food = 300;
         game.handle_step_limit();
         assert!(game.is_complete);
+    }
+
+    #[test]
+    fn eating_food_accumulates_freshness_score() {
+        let mut game = Game::new();
+        assert_eq!(game.food_freshness_score, 0.0);
+
+        game.core.head = game.core.food;
+        game.core.steps_without_food = 0;
+        game.handle_food_collision();
+
+        assert!((game.food_freshness_score - 1000.0).abs() < 1e-4);
+
+        game.core.head = game.core.food;
+        game.core.steps_without_food = 50;
+        game.handle_food_collision();
+
+        assert!((game.food_freshness_score - 1700.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn fitness_rewards_fresh_food_more_than_rotting_food() {
+        let mut fresh_game = Game::new();
+        fresh_game.core.head = fresh_game.core.food;
+        fresh_game.core.steps_without_food = 5;
+        fresh_game.core.num_steps = 20;
+        fresh_game.handle_food_collision();
+
+        let mut rotting_game = Game::new();
+        rotting_game.core.head = rotting_game.core.food;
+        rotting_game.core.steps_without_food = 95;
+        rotting_game.core.num_steps = 110;
+        rotting_game.handle_food_collision();
+
+        assert!(fresh_game.fitness() > rotting_game.fitness());
+    }
+
+    #[test]
+    fn fitness_gen0_rewards_survival_steps() {
+        let mut game_early = Game::new();
+        game_early.core.num_steps = 5;
+
+        let mut game_late = Game::new();
+        game_late.core.num_steps = 60;
+
+        assert!(game_late.fitness() > game_early.fitness());
+    }
+
+    #[test]
+    fn fitness_eating_rotting_food_beats_starvation() {
+        let mut game_starved = Game::new();
+        game_starved.core.num_steps = 100;
+        game_starved.core.steps_without_food = 100;
+
+        let mut game_eaten = Game::new();
+        game_eaten.core.head = game_eaten.core.food;
+        game_eaten.core.steps_without_food = 95;
+        game_eaten.core.num_steps = 100;
+        game_eaten.handle_food_collision();
+
+        assert!(game_eaten.fitness() > game_starved.fitness() * 5.0);
+    }
+
+    #[test]
+    fn fitness_does_not_overflow_f32_on_large_scores() {
+        let mut game = Game::new();
+        game.core.body = vec![Point::new(0, 0); 100];
+        game.core.num_steps = 10_000;
+        game.food_freshness_score = 100.0 * 800.0;
+        let fit = game.fitness();
+        assert!(fit.is_finite());
+        assert!(fit > 0.0);
     }
 }
 
