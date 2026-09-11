@@ -1,5 +1,3 @@
-use macroquad::prelude::*;
-
 // Game
 pub const GRID_W: i32 = 25;
 pub const GRID_H: i32 = 25;

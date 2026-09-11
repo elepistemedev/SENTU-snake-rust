@@ -13,7 +13,7 @@
 //! **Neither `Game` nor `GameDQN` ever duplicate these methods** — they call
 //! them through `Deref<Target = SnakeCore>`.
 
-use crate::render_snake::SwallowTracker;
+use crate::swallow::SwallowTracker;
 use crate::*;
 
 /// Shared snake grid state and physics.
