@@ -308,13 +308,20 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
 
 /// Bottom-left model-info panel — retro-terminal panel displaying
 /// hyperparameters and structured keyboard shortcuts with badge frames.
-fn draw_model_info(_game: &GameDQN, screen_h: f32) {
+/// hyperparameters and structured keyboard shortcuts with badge frames.
+fn draw_model_info(_game: &GameDQN, screen_h: f32, slow: bool) {
     let panel_x = 20.0;
     let panel_y = screen_h - 300.0;
     let panel_w = screen_h - 320.0;
     let panel_h = 280.0;
 
     draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "DQN TRAIN", false);
+    draw_badge(
+        if slow { "SLOW (1x)" } else { "FAST (50x)" },
+        panel_x + panel_w - 90.0,
+        panel_y + 12.0,
+        if slow { ACCENT_CYAN } else { ACCENT_GREEN },
+    );
 
     let mut y = panel_y + 48.0;
     draw_stat_row(
@@ -374,6 +381,7 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
     draw_text("CONTROLS", panel_x + 16.0, panel_y + 204.0, 13.0, ACCENT_GOLD);
 
     let shortcuts = [
+        ("SPACE", "Vel"),
         ("TAB", "HUD"),
         ("R", "Nuevo Agente"),
         ("ESC", "Menú"),
@@ -529,9 +537,9 @@ fn draw_stats_panels(
 /// Dashboard entry point (design D-3/D-4): starts with `clear_background(COLOR_BG)`
 /// and draws the four panels in order — left grid + model info, center network, right
 /// stats/charts. Borrows only `&GameDQN`, the view's two scalars and the ring.
-pub fn draw(game: &GameDQN, episode: usize, best_score: usize, history: &EpisodeHistory) {
+pub fn draw(game: &GameDQN, episode: usize, best_score: usize, history: &EpisodeHistory, slow: bool) {
     let theme = crate::theme::load_theme();
-    draw_with_theme(game, episode, best_score, history, theme);
+    draw_with_theme(game, episode, best_score, history, slow, theme);
 }
 
 /// Variant of [`draw`] accepting an explicit [`GameTheme`].
@@ -540,13 +548,14 @@ pub fn draw_with_theme(
     episode: usize,
     best_score: usize,
     history: &EpisodeHistory,
+    slow: bool,
     theme: crate::theme::GameTheme,
 ) {
     let screen_w = screen_width();
     let screen_h = screen_height();
     clear_background(COLOR_BG);
     draw_grid(game, screen_h, theme);
-    draw_model_info(game, screen_h);
+    draw_model_info(game, screen_h, slow);
     draw_neural_network(game, screen_h);
     draw_stats_panels(game, episode, best_score, history, screen_w, screen_h);
 }
