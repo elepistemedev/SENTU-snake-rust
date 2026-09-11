@@ -1,8 +1,16 @@
 //! Simulación
 //! Responsable de actualizar la población y la visualización
 //! Gestiona las generaciones
+//!
+//! ## Arquitectura (Fase 4)
+//!
+//! `Simulation` es ahora un módulo de **dominio puro**: no importa macroquad y no
+//! sabe nada de píxeles. El renderizado se realiza en la capa de presentación:
+//! - `viz_advanced::draw_sim` — dashboard de entrenamiento GA
+//! - `GaTrainView::draw_versus` — arena interna VS
+//! El historial de generaciones (`VizAdvanced`) vive en `GaTrainView`, que es
+//! la capa de presentación correcta.
 
-use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -10,8 +18,6 @@ use std::path::Path;
 use crate::game::Game;
 use crate::nn::Net;
 use crate::pop::Population;
-use crate::viz_advanced::VizAdvanced;
-use crate::viz_vs::VizVS;
 
 #[derive(Serialize, Deserialize)]
 struct SimMetadata {
@@ -33,7 +39,7 @@ pub enum SimMode {
 }
 
 /// Read-only metrics snapshot of a running `Simulation`, used to feed the
-/// DQN-style GA training HUD without owning any drawing.
+/// rendering layer without owning any drawing.
 pub struct SimSnapshot<'a> {
     pub gen_count: usize,
     pub gen_max: usize,
@@ -43,13 +49,13 @@ pub struct SimSnapshot<'a> {
     pub champ_fitness: f32,
     pub champ_steps: usize,
     pub best_game: Option<&'a Game>,
+    /// Top-N games for the advanced dashboard (up to 10).
+    pub top_games: Vec<&'a Game>,
 }
 
 pub struct Simulation {
     gen_count: usize,
     pop: Population,
-    viz: VizAdvanced,
-    viz_vs: VizVS,
     max_score_ever: usize,
     second_max_score_ever: usize,
     mode: SimMode,
@@ -57,6 +63,18 @@ pub struct Simulation {
     vs_game2: Option<Game>,
     best_net_ever: Option<Net>,
     second_best_net_ever: Option<Net>,
+    /// Generation history returned by `take_gen_history` for the presentation
+    /// layer to feed into `VizAdvanced`.
+    pending_gen_time: Option<f32>,
+    pending_gen_score: Option<usize>,
+}
+
+/// Pending generation event produced by `end_current_genration`. The presentation
+/// layer polls this via `Simulation::take_gen_update` and passes it to its owned
+/// `VizAdvanced`.
+pub struct GenUpdate {
+    pub time_secs: f32,
+    pub score: usize,
 }
 
 /// Champions persisted for the standalone GA-versus arena.
@@ -89,6 +107,13 @@ pub fn load_ga_champions() -> GaChampions {
     }
 }
 
+/// Load the generation history from `sim_metadata.json` for initialization of
+/// `VizAdvanced` in the presentation layer.
+pub fn load_gen_history() -> (Vec<f32>, Vec<usize>) {
+    let metadata = Simulation::load_metadata();
+    (metadata.gen_times, metadata.gen_scores)
+}
+
 impl Default for Simulation {
     fn default() -> Self {
         Self::new()
@@ -98,14 +123,10 @@ impl Default for Simulation {
 impl Simulation {
     pub fn new() -> Self {
         let metadata = Self::load_metadata();
-        let mut viz = VizAdvanced::new();
-        viz.set_history(metadata.gen_times, metadata.gen_scores);
 
         Self {
             gen_count: metadata.gen_count,
             pop: Population::new(),
-            viz,
-            viz_vs: VizVS::new(),
             max_score_ever: metadata.max_score_ever,
             second_max_score_ever: metadata.second_max_score_ever,
             mode: SimMode::Training,
@@ -113,6 +134,8 @@ impl Simulation {
             vs_game2: None,
             best_net_ever: metadata.best_net,
             second_best_net_ever: metadata.second_best_net,
+            pending_gen_time: None,
+            pending_gen_score: None,
         }
     }
 
@@ -136,7 +159,24 @@ impl Simulation {
     }
 
     pub fn save_metadata(&self) {
-        let (gen_times, gen_scores) = self.viz.get_history();
+        let metadata = SimMetadata {
+            gen_count: self.gen_count,
+            max_score_ever: self.max_score_ever,
+            second_max_score_ever: self.second_max_score_ever,
+            best_net: self.best_net_ever.clone(),
+            second_best_net: self.second_best_net_ever.clone(),
+            // History is owned by the presentation layer; save an empty vec
+            // here — a full save is done when GaTrainView calls save_metadata_with_history.
+            gen_times: Vec::new(),
+            gen_scores: Vec::new(),
+        };
+        if let Ok(json) = serde_json::to_string_pretty(&metadata) {
+            fs::write("sim_metadata.json", json).ok();
+        }
+    }
+
+    /// Save metadata including the generation history provided by the presentation layer.
+    pub fn save_metadata_with_history(&self, gen_times: Vec<f32>, gen_scores: Vec<usize>) {
         let metadata = SimMetadata {
             gen_count: self.gen_count,
             max_score_ever: self.max_score_ever,
@@ -163,39 +203,7 @@ impl Simulation {
         self.max_score_ever
     }
 
-    pub fn update(&mut self, is_viz_enabled: bool, _is_slow_mode: bool) {
-        match self.mode {
-            SimMode::Training => {
-                self.tick_training();
-
-                if is_viz_enabled {
-                    self.draw_advanced(crate::theme::load_theme());
-                }
-
-            }
-            SimMode::VS => {
-                let both_complete = self.step_vs_games();
-
-                if is_viz_enabled {
-                    if let (Some(g1), Some(g2)) = (&self.vs_game1, &self.vs_game2) {
-                        self.viz_vs.draw(g1, g2, self.max_score_ever);
-                    }
-                }
-
-                // Auto return to training when both are dead
-                if both_complete {
-                    self.mode = SimMode::Training;
-                    self.vs_game1 = None;
-                    self.vs_game2 = None;
-                }
-            }
-        }
-    }
-
-    /// Advance training by one population batch tick: steps the live games
-    /// and, when a generation completes, closes it out, starts the next
-    /// generation, and honors the every-100-generations auto-VS cadence.
-    /// This is the logic half of the legacy `update()` training arm.
+    /// Advance training by one population batch tick.
     pub fn tick_training(&mut self) {
         let games_alive = self.pop.update();
         if games_alive == 0 {
@@ -209,9 +217,7 @@ impl Simulation {
         }
     }
 
-    /// Advance the VS arena by one tick (each player moves once). When both
-    /// games are complete, the sim returns to Training automatically. This
-    /// is the logic half of the legacy `update()` VS arm.
+    /// Advance the VS arena by one tick. Auto-returns to Training when done.
     pub fn tick_vs(&mut self) {
         let both_complete = self.step_vs_games();
         if both_complete {
@@ -237,8 +243,7 @@ impl Simulation {
         self.mode
     }
 
-    /// References to both VS arena games when a match is running, or `None`
-    /// while the sim is in Training mode.
+    /// References to both VS arena games when a match is running.
     pub fn vs_state(&self) -> Option<(&Game, &Game)> {
         match (&self.vs_game1, &self.vs_game2) {
             (Some(g1), Some(g2)) => Some((g1, g2)),
@@ -246,11 +251,11 @@ impl Simulation {
         }
     }
 
-    /// Read-only HUD metrics derived from the live population and the
-    /// all-time records, without mutating or drawing anything.
+    /// Read-only HUD metrics snapshot. Includes top-N games for the dashboard.
     pub fn snapshot(&self) -> SimSnapshot<'_> {
         let stats = self.pop.get_gen_summary();
-        let best_game = self.pop.get_top_games(1).first().copied();
+        let top_games = self.pop.get_top_games(10);
+        let best_game = top_games.first().copied();
         SimSnapshot {
             gen_count: self.gen_count,
             gen_max: stats.max_score,
@@ -260,6 +265,16 @@ impl Simulation {
             champ_fitness: best_game.map_or(0.0, Game::fitness),
             champ_steps: best_game.map_or(0, |g| g.num_steps),
             best_game,
+            top_games,
+        }
+    }
+
+    /// Consume a pending `GenUpdate` event (produced by `end_current_genration`).
+    /// The presentation layer calls this each frame to feed `VizAdvanced`.
+    pub fn take_gen_update(&mut self) -> Option<GenUpdate> {
+        match (self.pending_gen_time.take(), self.pending_gen_score.take()) {
+            (Some(t), Some(s)) => Some(GenUpdate { time_secs: t, score: s }),
+            _ => None,
         }
     }
 
@@ -322,8 +337,9 @@ impl Simulation {
             self.save_metadata();
         }
 
-        self.viz
-            .update_generation(stats.max_steps as f32, stats.max_score);
+        // Signal the presentation layer to update VizAdvanced
+        self.pending_gen_time = Some(stats.time_elapsed_secs);
+        self.pending_gen_score = Some(stats.max_score);
 
         // Periodic checkpoint every 10 generations even if record wasn't broken
         if self.gen_count.is_multiple_of(10) {
@@ -331,29 +347,6 @@ impl Simulation {
             self.save_metadata();
         }
     }
-
-    pub fn draw_advanced(&self, theme: crate::theme::GameTheme) {
-        clear_background(crate::ui_kit::COLOR_BG);
-
-        let top_games = self.pop.get_top_games(10);
-        if !top_games.is_empty() {
-            let stats = self.pop.get_gen_summary();
-            let best_game = top_games[0];
-
-            self.viz.draw(
-                &top_games,
-                self.gen_count,
-                self.max_score_ever,
-                stats.max_score,
-                stats.time_elapsed_secs,
-                best_game.score(),
-                best_game.fitness(),
-                best_game.num_steps,
-                theme,
-            );
-        }
-    }
-
 }
 
 #[cfg(test)]
