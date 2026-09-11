@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod configs;
 pub mod dqn;
+pub mod env_config;
 pub mod game;
 pub mod game_dqn;
 pub mod nn;
@@ -14,6 +15,7 @@ pub mod versus;
 
 pub use agent::*;
 pub use configs::*;
+pub use env_config::*;
 pub use snake_core::SnakeCore;
 pub use swallow::SwallowTracker;
 pub use utils::*;

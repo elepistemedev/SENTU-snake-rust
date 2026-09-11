@@ -18,7 +18,7 @@ pub struct Stream {
 impl Stream {
     pub fn new() -> Self {
         let mut games = Vec::new();
-        for _ in 0..NUM_GAMES_PER_STREAM {
+        for _ in 0..*NUM_GAMES_PER_STREAM {
             games.push(Game::new());
         }
 
@@ -30,7 +30,7 @@ impl Stream {
     }
 
     pub fn update(&mut self) -> usize {
-        let mut games_alive = NUM_GAMES_PER_STREAM;
+        let mut games_alive = *NUM_GAMES_PER_STREAM;
 
         for g in self.games.iter_mut() {
             g.update();
@@ -46,16 +46,16 @@ impl Stream {
             }
         }
 
-        NUM_GAMES_PER_STREAM - games_alive
+        *NUM_GAMES_PER_STREAM - games_alive
     }
 
     pub fn is_local_maximum(&self) -> bool {
-        self.max_score_ts.elapsed().as_secs_f32() > STREAM_LOCAL_MAX_WAIT_SECS
+        self.max_score_ts.elapsed().as_secs_f32() > *STREAM_LOCAL_MAX_WAIT_SECS
     }
 
     pub fn inject(&mut self, net: &Net) {
         let new_game = Game::with_brain(net);
-        let num_games = (NUM_GAMES_PER_STREAM as f32 * STREAM_REJUVENATION_PERCENT) as usize;
+        let num_games = (*NUM_GAMES_PER_STREAM as f32 * *STREAM_REJUVENATION_PERCENT) as usize;
 
         self.games.drain(0..num_games);
         for _ in 0..num_games {
@@ -106,10 +106,10 @@ impl Stream {
         let mut new_games = Vec::new();
 
         // Distribución de la población
-        let num_retained = NUM_GAMES_PER_STREAM as f32 * POP_NUM_RETAINED;
-        let num_children = NUM_GAMES_PER_STREAM as f32 * POP_NUM_CHILDREN;
-        let num_random = NUM_GAMES_PER_STREAM as f32 * POP_NUM_RANDOM;
-        let mut num_retained_mutated = NUM_GAMES_PER_STREAM as f32 * POP_NUM_RETAINED_MUTATED;
+        let num_retained = *NUM_GAMES_PER_STREAM as f32 * *POP_NUM_RETAINED;
+        let num_children = *NUM_GAMES_PER_STREAM as f32 * *POP_NUM_CHILDREN;
+        let num_random = *NUM_GAMES_PER_STREAM as f32 * *POP_NUM_RANDOM;
+        let mut num_retained_mutated = *NUM_GAMES_PER_STREAM as f32 * *POP_NUM_RETAINED_MUTATED;
 
         // Retenidos sin mutación
         let mut games_sorted = self.games.clone();

@@ -21,6 +21,7 @@ fn window_conf() -> macroquad::window::Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    snake::domain::env_config::init();
     if let Err(e) = snake::presentation::ui_kit::init_default_font() {
         eprintln!("[WARN] Failed to initialize embedded font: {:?}", e);
     }

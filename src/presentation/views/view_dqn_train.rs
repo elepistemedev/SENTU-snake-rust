@@ -118,10 +118,10 @@ impl DqnTrainView {
             if let Some(m) = metadata {
                 (m.best_score, m.episode, m.epsilon)
             } else {
-                (1, 0, crate::dqn::EPSILON_WARM_START)
+                (1, 0, *crate::dqn::EPSILON_WARM_START)
             }
         } else {
-            (0, 0, crate::dqn::EPSILON_START)
+            (0, 0, *crate::dqn::EPSILON_START)
         };
         let game = if let Some(ref champ) = champion {
             GameDQN::with_network(champ, epsilon)
@@ -771,7 +771,7 @@ mod tests {
 
         // 1. Without champion, starts with random weights and EPSILON_START
         let view_fresh = DqnTrainView::at_path(TEST_WARM_FILE);
-        assert_eq!(view_fresh.game.agent.get_epsilon(), crate::dqn::EPSILON_START);
+        assert_eq!(view_fresh.game.agent.get_epsilon(), *crate::dqn::EPSILON_START);
         assert_eq!(view_fresh.best_score(), 0);
 
         // 2. With saved champion and metadata, initializes agent with champion weights and saved epsilon
@@ -793,7 +793,7 @@ mod tests {
 
         // 3. fresh_agent() resets the agent to EPSILON_START and fresh random weights
         view_warm.fresh_agent();
-        assert_eq!(view_warm.game.agent.get_epsilon(), crate::dqn::EPSILON_START);
+        assert_eq!(view_warm.game.agent.get_epsilon(), *crate::dqn::EPSILON_START);
         assert_eq!(view_warm.best_score(), 0);
         assert_eq!(view_warm.episode(), 0);
         // Champion itself is retained as historical record

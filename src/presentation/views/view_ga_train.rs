@@ -22,12 +22,14 @@
 //! [`GaTrainView::trigger_vs`]; `Esc`-to-menu is shell-owned, so this view never
 //! polls keys itself.
 
+use std::sync::LazyLock;
 use std::thread;
 use std::time::Duration;
 
 use macroquad::prelude::*;
 
 use crate::configs::{GRID_H, GRID_W, SIM_SLEEP_MILLIS};
+use crate::env_config::env_usize;
 use crate::sim::{SimMode, Simulation};
 use crate::viz_advanced::VizAdvanced;
 use crate::viz_vs::{VizVS, VsFlavor};
@@ -35,7 +37,7 @@ use crate::viz_vs::{VizVS, VsFlavor};
 
 /// Fast-mode batching cap, matching the legacy GA driver: at most this many sim
 /// ticks per frame.
-pub const MAX_FAST_TICKS_PER_FRAME: usize = 50;
+pub static MAX_FAST_TICKS_PER_FRAME: LazyLock<usize> = LazyLock::new(|| env_usize("MAX_FAST_TICKS_PER_FRAME", 50));
 
 /// Number of sim ticks to run in one shell frame for a given pacing request and
 /// VS-sub-state. Pure pacing seam: slow mode steps exactly one batch per frame;
@@ -46,7 +48,7 @@ pub fn frame_tick_budget(slow_requested: bool, vs_active: bool) -> usize {
     if slow_requested || vs_active {
         1
     } else {
-        MAX_FAST_TICKS_PER_FRAME
+        *MAX_FAST_TICKS_PER_FRAME
     }
 }
 
@@ -130,7 +132,7 @@ impl GaTrainView {
             }
         }
         if budget == 1 {
-            thread::sleep(Duration::from_millis(SIM_SLEEP_MILLIS));
+            thread::sleep(Duration::from_millis(*SIM_SLEEP_MILLIS));
         }
     }
 
@@ -363,7 +365,7 @@ impl GaTrainView {
 
 #[cfg(test)]
 mod tests {
-    use super::{frame_tick_budget, render_target, GaRenderTarget, GaTrainView};
+    use super::{frame_tick_budget, render_target, GaRenderTarget, GaTrainView, MAX_FAST_TICKS_PER_FRAME};
     use crate::sim::SimMode;
 
     // --- frame_tick_budget: pacing pure seam -----------------------------------
@@ -383,7 +385,7 @@ mod tests {
 
     #[test]
     fn fast_training_batches_up_to_fifty_ticks_per_frame() {
-        assert_eq!(frame_tick_budget(false, false), 50);
+        assert_eq!(frame_tick_budget(false, false), *MAX_FAST_TICKS_PER_FRAME);
     }
 
     // --- render_target: which renderer draws, given mode + advanced toggle -----
