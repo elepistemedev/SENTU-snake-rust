@@ -186,9 +186,9 @@
     "semantic_hash": ""
   },
   "src/domain/game.rs": {
-    "mtime": 1789152519.3782885,
-    "seen": 1789152605.976993,
-    "ast_hash": "c9e90d69e094ffb6ce7ef5d09951e3e9",
+    "mtime": 1789154916.4292946,
+    "seen": 1789155061.683638,
+    "ast_hash": "3ae33dcaca7d2abbef5a71ac3eefbe41",
     "semantic_hash": ""
   },
   "src/domain/game_dqn.rs": {
@@ -222,9 +222,9 @@
     "semantic_hash": "85257fdbc9868ec1daaa5fd45a032ba1"
   },
   "src/domain/snake_core.rs": {
-    "mtime": 1789152374.6599147,
-    "seen": 1789152605.9769979,
-    "ast_hash": "27565cb5647b503486f34ae83a48d4c4",
+    "mtime": 1789154863.3548157,
+    "seen": 1789155061.6836429,
+    "ast_hash": "271ea9650c510ce8380230e7656b9759",
     "semantic_hash": ""
   },
   "src/domain/stream.rs": {
@@ -270,15 +270,15 @@
     "semantic_hash": "39269a0511ccc70ad816d4884842ad57"
   },
   "src/presentation/app.rs": {
-    "mtime": 1789153678.3265693,
-    "seen": 1789153769.070624,
-    "ast_hash": "a654bbfde2c78a2380ff5143ce219a90",
+    "mtime": 1789154974.6640804,
+    "seen": 1789155061.683651,
+    "ast_hash": "cc8fdef275b9e3fa41f470612cb37e6c",
     "semantic_hash": ""
   },
   "src/presentation/dqn_dash.rs": {
-    "mtime": 1789153707.063143,
-    "seen": 1789153769.070625,
-    "ast_hash": "c6a8ddfd7d684cd2fa7abcf6831d73e7",
+    "mtime": 1789154983.470738,
+    "seen": 1789155061.683651,
+    "ast_hash": "1e3027be1f0ec94d8bb01f90cf8f7248",
     "semantic_hash": ""
   },
   "src/presentation/mod.rs": {
@@ -288,10 +288,10 @@
     "semantic_hash": "dbb1bb22869a4fa4fa93a956595f32bd"
   },
   "src/presentation/render_snake.rs": {
-    "mtime": 1789147898.324363,
-    "seen": 1789149696.456374,
-    "ast_hash": "e5460d6d5be21cd4ea9d32aedc0b6d29",
-    "semantic_hash": "e5460d6d5be21cd4ea9d32aedc0b6d29"
+    "mtime": 1789154961.4013908,
+    "seen": 1789155061.683653,
+    "ast_hash": "62be9b7d0a752caab5536965e6def040",
+    "semantic_hash": ""
   },
   "src/presentation/ui_kit.rs": {
     "mtime": 1789149458.2112937,
@@ -312,9 +312,9 @@
     "semantic_hash": ""
   },
   "src/presentation/views/view_dqn_train.rs": {
-    "mtime": 1789153718.5935426,
-    "seen": 1789153769.0706291,
-    "ast_hash": "25b3fa91a8e85990bfbc800faa870495",
+    "mtime": 1789154991.25163,
+    "seen": 1789155061.683656,
+    "ast_hash": "86aa42e4242e32e88c614eac3ec9a704",
     "semantic_hash": ""
   },
   "src/presentation/views/view_dqn_versus.rs": {
@@ -324,9 +324,9 @@
     "semantic_hash": ""
   },
   "src/presentation/views/view_ga_train.rs": {
-    "mtime": 1789151676.2757149,
-    "seen": 1789152605.977012,
-    "ast_hash": "d58c93fa57c00327c53edcf9055be5a6",
+    "mtime": 1789154999.3216436,
+    "seen": 1789155061.683657,
+    "ast_hash": "4b25a150f67c877f8b24556f6fbc3d3c",
     "semantic_hash": ""
   },
   "src/presentation/views/view_ga_versus.rs": {
@@ -342,16 +342,16 @@
     "semantic_hash": "8102f75b57f7f1207a2f64383614e420"
   },
   "src/presentation/viz_advanced.rs": {
-    "mtime": 1789152450.283401,
-    "seen": 1789152605.977015,
-    "ast_hash": "385ad50f75553a5d5f56efcdc50255c1",
+    "mtime": 1789155008.6643188,
+    "seen": 1789155061.683659,
+    "ast_hash": "71a7ed0e1948a973d33cf6fff407e773",
     "semantic_hash": ""
   },
   "src/presentation/viz_vs.rs": {
-    "mtime": 1789112961.354217,
-    "seen": 1789149696.4563808,
-    "ast_hash": "e7337f81a909b419694b2fdd063f49c6",
-    "semantic_hash": "e7337f81a909b419694b2fdd063f49c6"
+    "mtime": 1789155014.9667594,
+    "seen": 1789155061.68366,
+    "ast_hash": "b5c3e6fcf06f8a95952630c6abbf2c4d",
+    "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-09-11-clean-architecture-folder-distribution.md": {
     "mtime": 1789148762.6433494,
