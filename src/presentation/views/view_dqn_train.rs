@@ -319,6 +319,14 @@ impl DqnTrainView {
             30.0,
             WHITE,
         );
+        let cur_limit = self.game.core.hunger_limit();
+        draw_text(
+            &format!("Steps: {} (Sin comer: {}/{})", self.game.steps, self.game.core.steps_without_food, cur_limit),
+            10.0,
+            155.0,
+            20.0,
+            WHITE,
+        );
 
         let (tile_size, offset_x, offset_y) = self.grid_layout();
 
@@ -504,16 +512,16 @@ mod tests {
 
     #[test]
     fn bounded_ticks_advance_an_episode_and_reset_the_board() {
-        // GameDQN's step limit is DQN_STEP_LIMIT = 500 steps, and every
-        // episode must end within it (walls/self-collision end it earlier), so
-        // 550 ticks deterministically complete at least one episode.
+        // The base hunger step limit is 100 steps, and every episode must end within it
+        // (walls/self-collision end it earlier), so 250 ticks deterministically complete
+        // at least one episode.
         let mut view = test_view();
-        for _ in 0..550 {
+        for _ in 0..250 {
             view.tick();
         }
         assert!(
             view.episode() >= 1,
-            "after 550 ticks (>= the 500-step limit) at least one episode must end"
+            "after 250 ticks (>= the 100-step limit) at least one episode must end"
         );
         assert!(
             !view.game.is_complete,

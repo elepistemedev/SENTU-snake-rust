@@ -219,6 +219,26 @@ impl SnakeCore {
     pub fn calculate_distance(p1: &Point, p2: &Point) -> f64 {
         (((p1.x - p2.x).pow(2) + (p1.y - p2.y).pow(2)) as f64).sqrt()
     }
+
+    /// Dynamically computes the hunger step limit (max steps allowed without food)
+    /// based exclusively on the current size of the snake (body segment count).
+    #[inline]
+    pub fn hunger_limit(&self) -> usize {
+        dynamic_step_limit(self.body.len())
+    }
+}
+
+/// Dynamically scales the hunger step limit (max steps allowed without food) based
+/// exclusively on the snake's size (length). Larger snakes require more steps to
+/// maneuver their bodies around obstacles to reach food without trapping themselves.
+pub fn dynamic_step_limit(snake_size: usize) -> usize {
+    match snake_size {
+        s if s > 80 => 800,
+        s if s > 30 => 500,
+        s if s > 20 => 300,
+        s if s > 10 => 200,
+        _ => 100,
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -228,6 +248,21 @@ impl SnakeCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dynamic_step_limit_scales_with_snake_size() {
+        assert_eq!(dynamic_step_limit(0), 100);
+        assert_eq!(dynamic_step_limit(1), 100);
+        assert_eq!(dynamic_step_limit(10), 100);
+        assert_eq!(dynamic_step_limit(11), 200);
+        assert_eq!(dynamic_step_limit(20), 200);
+        assert_eq!(dynamic_step_limit(21), 300);
+        assert_eq!(dynamic_step_limit(30), 300);
+        assert_eq!(dynamic_step_limit(31), 500);
+        assert_eq!(dynamic_step_limit(80), 500);
+        assert_eq!(dynamic_step_limit(81), 800);
+        assert_eq!(dynamic_step_limit(150), 800);
+    }
 
     #[test]
     fn is_wall_rejects_border_and_accepts_inner() {
