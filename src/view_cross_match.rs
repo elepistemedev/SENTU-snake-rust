@@ -167,6 +167,13 @@ impl CrossMatchView {
         }
     }
 
+    /// Reset the series for a rematch if in active series state.
+    pub fn restart(&mut self) {
+        if let CrossInner::Series(series) = &mut self.inner {
+            series.restart();
+        }
+    }
+
     /// True once the whole 5-game series has ended (message state is never
     /// finished).
     pub fn is_finished(&self) -> bool {
