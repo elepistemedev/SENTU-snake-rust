@@ -497,16 +497,16 @@ mod tests {
 
     #[test]
     fn bounded_ticks_advance_an_episode_and_reset_the_board() {
-        // GameDQN's step limit is NUM_SIM_STEPS * 2 = 200 steps, and every
+        // GameDQN's step limit is DQN_STEP_LIMIT = 500 steps, and every
         // episode must end within it (walls/self-collision end it earlier), so
-        // 250 ticks deterministically complete at least one episode.
+        // 550 ticks deterministically complete at least one episode.
         let mut view = test_view();
-        for _ in 0..250 {
+        for _ in 0..550 {
             view.tick();
         }
         assert!(
             view.episode() >= 1,
-            "after 250 ticks (>= the 200-step limit) at least one episode must end"
+            "after 550 ticks (>= the 500-step limit) at least one episode must end"
         );
         assert!(
             !view.game.is_complete,

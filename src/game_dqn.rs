@@ -1,7 +1,7 @@
 //! Game logic adapted for DQN training
 //! Single agent learning through experience
 
-use crate::dqn::{DQNAgent, Experience};
+use crate::dqn::{DQNAgent, Experience, DQN_STEP_LIMIT};
 use crate::utils::{relative_dir, rotate_vision_to_relative};
 use crate::*;
 
@@ -125,13 +125,13 @@ impl GameDQN {
         }
         
         // Check step limit
-        if self.steps >= NUM_SIM_STEPS * 2 {
+        if self.steps >= DQN_STEP_LIMIT {
             done = true;
             self.is_complete = true;
         }
 
         // Anti-stagnation: end episode if no food eaten for too long
-        if !done && self.steps_without_food >= NUM_SIM_STEPS {
+        if !done && self.steps_without_food >= DQN_STEP_LIMIT {
             reward = -0.5;
             done = true;
             self.is_complete = true;

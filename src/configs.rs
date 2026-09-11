@@ -7,7 +7,7 @@ pub const GRID_H: i32 = 25;
 // Sim
 pub const NUM_GAMES_PER_STREAM: usize = 1000;
 pub const NUM_STREAMS: usize = 1;
-pub const NUM_SIM_STEPS: usize = 100;
+pub const NUM_SIM_STEPS: usize = 500;
 pub const STREAM_REJUVENATION_PERCENT: f32 = 0.1;
 pub const STREAM_LOCAL_MAX_WAIT_SECS: f32 = 90.0;
 pub const SIM_SLEEP_MILLIS: u64 = 50;

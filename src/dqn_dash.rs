@@ -29,10 +29,11 @@
 //! (`episode`, `best_score`) and `&EpisodeHistory` — no `DqnTrainView` crosses
 //! into this module (design D-3/D-4).
 
-use crate::configs::{GRID_H, GRID_W, NUM_SIM_STEPS};
+use crate::configs::{GRID_H, GRID_W};
 use crate::dqn::{
     argmax_index, BATCH_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_INP_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE,
-    EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE, REPLAY_BUFFER_SIZE,
+    DQN_STEP_LIMIT, EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE,
+    REPLAY_BUFFER_SIZE,
 };
 use crate::game_dqn::GameDQN;
 use crate::ui_kit::{
@@ -116,14 +117,14 @@ pub fn output_intensity(value: f64) -> f64 {
 }
 
 /// Pure SCORE/BEST bar fraction over the documented DQN episode bound (design
-/// §3): `FULL_BAR = (NUM_SIM_STEPS * 2) as f32` = 200.0 today — `GameDQN::step`
-/// forces `done` at `steps >= NUM_SIM_STEPS * 2` and every food eaten consumes a
-/// step, so `score <= steps <= 200`. Clamped to [0,1]; the GA reference's `/20`
+/// §3): `FULL_BAR = DQN_STEP_LIMIT as f32` = 500.0 — `GameDQN::step`
+/// forces `done` at `steps >= DQN_STEP_LIMIT` and every food eaten consumes a
+/// step, so `score <= steps <= 500`. Clamped to [0,1]; the GA reference's `/20`
 /// denominator is never used on the DQN dashboard. Consumed by
 /// [`crate::dqn_dash`]'s `draw_stats_panels` to size the "SCORE" and "BEST"
 /// bars.
 fn score_bar_fraction(score: usize) -> f32 {
-    let full_bar = (NUM_SIM_STEPS * 2) as f32;
+    let full_bar = DQN_STEP_LIMIT as f32;
     (score as f32 / full_bar).clamp(0.0, 1.0)
 }
 
@@ -363,7 +364,7 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
         y,
         panel_w - 32.0,
         "Step Limit:",
-        &format!("{}", NUM_SIM_STEPS * 2),
+        &format!("{}", DQN_STEP_LIMIT),
     );
 
     // Separator before controls
@@ -625,12 +626,8 @@ mod tests {
 
     #[test]
     fn score_bar_fraction_clamps_against_the_documented_episode_bound() {
-        // Full bar = (NUM_SIM_STEPS * 2) as f32 = 200.0 with the current config:
-        // GameDQN forces done at steps >= NUM_SIM_STEPS * 2 and score grows only
-        // when food is eaten (each food also consumes a step), so
-        // score <= steps <= 200. Never the GA reference's /20 denominator.
-        let full_bar = (NUM_SIM_STEPS * 2) as f32;
-        assert_eq!(full_bar, 200.0, "documented episode bound is 200 steps");
+        let full_bar = DQN_STEP_LIMIT as f32;
+        assert_eq!(full_bar, 500.0, "documented episode bound is 500 steps");
         assert_eq!(score_bar_fraction(0), 0.0);
         assert_eq!(
             score_bar_fraction(full_bar as usize),

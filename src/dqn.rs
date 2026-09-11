@@ -20,6 +20,7 @@ pub const DQN_OUTPUT_LAYER_SIZE: usize = 3;
 pub const DQN_ARCH: [usize; 3] = [DQN_INP_LAYER_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE];
 pub const TARGET_UPDATE_INTERVAL: usize = 100;
 pub const LOSS_EMA_ALPHA: f64 = 0.05;
+pub const DQN_STEP_LIMIT: usize = 500;
 
 #[derive(Clone)]
 pub struct Experience {

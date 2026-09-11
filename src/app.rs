@@ -618,13 +618,13 @@ impl App {
         let items: [(&str, Option<(String, Color)>); 6] = [
             ("DQN Train", dqn_train_badge),
             ("DQN Versus", dqn_versus_badge),
-            ("GA Train", ga_train_badge),
-            ("GA Versus", ga_versus_badge),
-            ("DQN vs GA", cross_badge),
+            ("Algoritmo Genético (Train)", ga_train_badge),
+            ("Algoritmo Genético (Versus)", ga_versus_badge),
+            ("DQN vs Algoritmo Genético", cross_badge),
             ("Configuración y Temas", theme_badge),
         ];
 
-        let menu_w = (w * 0.68).clamp(480.0, 660.0);
+        let menu_w = (w * 0.72).clamp(560.0, 720.0);
         let card_x = center_x - menu_w * 0.5;
         let start_y = title_y + title_h + (h * 0.03).max(14.0);
         let avail_h = status_bar_y - start_y - 14.0;

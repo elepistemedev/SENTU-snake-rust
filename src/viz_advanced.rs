@@ -483,7 +483,7 @@ impl VizAdvanced {
         let panel_w = screen_h - 320.0;
         let panel_h = 280.0;
 
-        draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "GA CONFIG", false);
+        draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "ALGORITMO GENÉTICO", false);
 
         let rows = [
             ("Población Agentes:", format!("{}", NUM_GAMES_PER_STREAM)),
