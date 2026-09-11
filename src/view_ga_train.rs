@@ -159,11 +159,11 @@ impl GaTrainView {
     }
 
     /// Draw the frame selected by [`render_target`].
-    pub fn draw(&self) {
+    pub fn draw(&self, theme: crate::theme::GameTheme) {
         match render_target(self.advanced, self.sim.mode()) {
             GaRenderTarget::Versus => self.draw_versus(),
-            GaRenderTarget::Advanced => self.sim.draw_advanced(),
-            GaRenderTarget::Hud => self.draw_dqn_style(),
+            GaRenderTarget::Advanced => self.sim.draw_advanced(theme),
+            GaRenderTarget::Hud => self.draw_dqn_style(theme),
         }
     }
 
@@ -180,8 +180,8 @@ impl GaTrainView {
     /// best ever, elapsed seconds, current champion score/fitness/steps) plus the
     /// current best snake's grid, centered and sized from the screen dimensions
     /// (AD-8) like the DQN train view.
-    fn draw_dqn_style(&self) {
-        clear_background(BLACK);
+    fn draw_dqn_style(&self, theme: crate::theme::GameTheme) {
+        clear_background(crate::ui_kit::COLOR_BG);
 
         let snap = self.sim.snapshot();
 
@@ -239,32 +239,41 @@ impl GaTrainView {
             10.0,
             250.0,
             20.0,
-            GRAY,
+            crate::ui_kit::TEXT_MUTED,
         );
 
         if let Some(best_game) = snap.best_game {
             let (tile_size, offset_x, offset_y) = self.grid_layout();
+            let colors = theme.colors();
 
             // Food
-            draw_rectangle(
+            crate::render_snake::draw_apple(
                 offset_x + best_game.food.x as f32 * tile_size,
                 offset_y + best_game.food.y as f32 * tile_size,
                 tile_size,
-                tile_size,
-                RED,
+                theme,
+                colors.food,
             );
 
             // Snake
             for (i, segment) in best_game.body.iter().enumerate() {
-                let color = if i == 0 { GREEN } else { DARKGREEN };
-                draw_rectangle(
-                    offset_x + segment.x as f32 * tile_size,
-                    offset_y + segment.y as f32 * tile_size,
+                let seg_x = offset_x + segment.x as f32 * tile_size;
+                let seg_y = offset_y + segment.y as f32 * tile_size;
+                let color = if i == 0 { colors.head } else { colors.body };
+                crate::render_snake::draw_connected_segment(
+                    &best_game.body,
+                    i,
+                    best_game.dir,
+                    seg_x,
+                    seg_y,
                     tile_size,
-                    tile_size,
+                    theme,
                     color,
+                    best_game.swallow.bulge_at(i),
+                    best_game.swallow.head_scale(),
                 );
             }
+
 
             // Grid lines
             for i in 0..=GRID_W {

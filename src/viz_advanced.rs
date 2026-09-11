@@ -1,19 +1,32 @@
-//! Advanced visualization dashboard for Snake AI training
+//! Advanced visualization dashboard for Snake AI training (GA)
+//!
+//! Mirrors the retro-terminal UI/UX grammar of `dqn_dash`:
+//! - Left column: Live multi-snake arena (rank 0 active theme + ghost population) and bottom GA config panel
+//! - Center column: Full-height 12x8x4 Neural Network diagram with active argmax glow and value readouts
+//! - Right column: Responsive stacked stats panels, normalized progress bars, and allocation-free charts
 
+use crate::configs::*;
+use crate::theme::GameTheme;
+use crate::ui_kit::{
+    draw_badge, draw_progress_bar, draw_responsive_chart, draw_terminal_box, ACCENT_CYAN,
+    ACCENT_GOLD, ACCENT_GREEN, COLOR_BG, PANEL_BORDER, TEXT_MUTED,
+};
 use macroquad::prelude::*;
-use crate::*;
 
-const PANEL_BG: Color = Color::new(0.05, 0.05, 0.05, 0.95);
-const PANEL_BORDER: Color = Color::new(0.4, 0.4, 0.4, 1.0);
 const TEXT_COLOR: Color = Color::new(0.9, 0.9, 0.9, 1.0);
-const ACCENT_COLOR: Color = Color::new(0.0, 0.9, 0.9, 1.0);
-const TITLE_SIZE: f32 = 22.0;
 const TEXT_SIZE: f32 = 18.0;
 
 pub struct VizAdvanced {
     gen_times: Vec<f32>,
     gen_scores: Vec<usize>,
+    gen_scores_f32: Vec<f32>,
     max_history_size: usize,
+}
+
+impl Default for VizAdvanced {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VizAdvanced {
@@ -21,19 +34,25 @@ impl VizAdvanced {
         Self {
             gen_times: Vec::new(),
             gen_scores: Vec::new(),
+            gen_scores_f32: Vec::new(),
             max_history_size: 50,
         }
     }
 
+
     pub fn update_generation(&mut self, time: f32, score: usize) {
         self.gen_times.push(time);
         self.gen_scores.push(score);
-        
+        self.gen_scores_f32.push(score as f32);
+
         if self.gen_times.len() > self.max_history_size {
             self.gen_times.remove(0);
         }
         if self.gen_scores.len() > self.max_history_size {
             self.gen_scores.remove(0);
+        }
+        if self.gen_scores_f32.len() > self.max_history_size {
+            self.gen_scores_f32.remove(0);
         }
     }
 
@@ -48,10 +67,12 @@ impl VizAdvanced {
         if scores.len() > self.max_history_size {
             scores.drain(0..(scores.len() - self.max_history_size));
         }
+        self.gen_scores_f32 = scores.iter().map(|&s| s as f32).collect();
         self.gen_times = times;
         self.gen_scores = scores;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
         games: &[&crate::game::Game],
@@ -62,12 +83,13 @@ impl VizAdvanced {
         current_score: usize,
         fitness: f32,
         steps: usize,
+        theme: GameTheme,
     ) {
         let screen_w = screen_width();
         let screen_h = screen_height();
 
         // Left column: Grid + Model Info
-        self.draw_game_grid(games, screen_w, screen_h);
+        self.draw_game_grid(games, screen_w, screen_h, theme);
         self.draw_model_info(screen_w, screen_h);
 
         // Center column: Neural Network (full height)
@@ -89,31 +111,56 @@ impl VizAdvanced {
         );
     }
 
-    fn draw_game_grid(&self, games: &[&crate::game::Game], _screen_w: f32, screen_h: f32) {
-        let grid_size = screen_h - 340.0; // Dynamic size based on screen height
+    fn draw_game_grid(
+        &self,
+        games: &[&crate::game::Game],
+        _screen_w: f32,
+        screen_h: f32,
+        theme: GameTheme,
+    ) {
+        let grid_size = screen_h - 340.0;
         let x = 20.0;
         let y = 20.0;
         let tile_size = grid_size / GRID_W as f32;
 
-        // Border
-        draw_rectangle(x - 8.0, y - 8.0, grid_size + 16.0, grid_size + 16.0, PANEL_BORDER);
-        draw_rectangle(x, y, grid_size, grid_size, BLACK);
+        // Border and backdrop
+        draw_rectangle(
+            x - 8.0,
+            y - 8.0,
+            grid_size + 16.0,
+            grid_size + 16.0,
+            PANEL_BORDER,
+        );
+        draw_rectangle(x, y, grid_size, grid_size, COLOR_BG);
 
         // Grid lines
         for i in 0..=GRID_W {
             let line_x = x + i as f32 * tile_size;
-            draw_line(line_x, y, line_x, y + grid_size, 1.0, Color::new(0.15, 0.15, 0.15, 1.0));
+            draw_line(
+                line_x,
+                y,
+                line_x,
+                y + grid_size,
+                1.0,
+                Color::new(0.12, 0.12, 0.15, 1.0),
+            );
         }
         for i in 0..=GRID_H {
             let line_y = y + i as f32 * tile_size;
-            draw_line(x, line_y, x + grid_size, line_y, 1.0, Color::new(0.15, 0.15, 0.15, 1.0));
+            draw_line(
+                x,
+                line_y,
+                x + grid_size,
+                line_y,
+                1.0,
+                Color::new(0.12, 0.12, 0.15, 1.0),
+            );
         }
 
         if games.is_empty() {
             return;
         }
 
-        let theme = crate::theme::load_theme();
         let colors = theme.colors();
 
         // Food
@@ -147,12 +194,12 @@ impl VizAdvanced {
                         game.swallow.head_scale(),
                     );
                 } else {
-                    // Others: gray ghosts with decreasing opacity
-                    let alpha = 0.4 - (rank as f32 * 0.03);
+                    // Population ghosts: gray with decreasing opacity
+                    let alpha = 0.35 - (rank as f32 * 0.028);
                     let segment_color = if i == 0 {
-                        Color::new(0.7, 0.7, 0.7, alpha) // Ghost head
+                        Color::new(0.65, 0.70, 0.75, alpha)
                     } else {
-                        Color::new(0.5, 0.5, 0.5, alpha * 0.7) // Ghost body
+                        Color::new(0.45, 0.50, 0.55, alpha * 0.7)
                     };
                     draw_rectangle(
                         seg_x + 1.0,
@@ -173,35 +220,32 @@ impl VizAdvanced {
         let panel_x = left_col_width + 40.0;
         let panel_y = 20.0;
 
-        draw_rectangle(panel_x, panel_y, panel_w, panel_h, PANEL_BG);
-        draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 3.0, PANEL_BORDER);
-        draw_text("NEURAL NETWORK", panel_x + 20.0, panel_y + 28.0, TITLE_SIZE, ACCENT_COLOR);
+        draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "NEURAL NETWORK", false);
 
         let outputs = game.get_net_output();
         if outputs.is_empty() {
             return;
         }
 
-        // Vertical layout - layers from left to right
         let layer_spacing = 160.0;
-        
-        // Input layer (12 nodes) - leftmost
+
+        // Input layer (12 nodes)
         let input_x = panel_x + 80.0;
         let input_start_y = panel_y + 80.0;
         let input_spacing = (panel_h - 160.0) / (INP_LAYER_SIZE as f32 - 1.0);
 
-        // Hidden layer (8 nodes) - middle
+        // Hidden layer (8 nodes)
         let hidden_x = input_x + layer_spacing;
         let hidden_start_y = panel_y + 150.0;
         let hidden_spacing = (panel_h - 300.0) / (HIDDEN_LAYER_SIZE as f32 - 1.0);
-        
-        // Output layer (4 nodes) - rightmost
+
+        // Output layer (4 nodes)
         let output_x = hidden_x + layer_spacing;
         let output_start_y = panel_y + 250.0;
         let output_spacing = (panel_h - 500.0) / (OUTPUT_LAYER_SIZE as f32 - 1.0);
         let output_labels = ["LEFT", "RIGHT", "BOTTOM", "TOP"];
 
-        // Draw ALL connections: Input -> Hidden
+        // Synapse connections: Input -> Hidden (subtle lines)
         for i in 0..INP_LAYER_SIZE {
             for j in 0..HIDDEN_LAYER_SIZE {
                 draw_line(
@@ -209,13 +253,13 @@ impl VizAdvanced {
                     input_start_y + i as f32 * input_spacing,
                     hidden_x,
                     hidden_start_y + j as f32 * hidden_spacing,
-                    1.5,
-                    Color::new(0.3, 0.3, 0.3, 0.2),
+                    1.0,
+                    Color::new(0.20, 0.22, 0.28, 0.15),
                 );
             }
         }
 
-        // Draw ALL connections: Hidden -> Output
+        // Synapse connections: Hidden -> Output
         for i in 0..HIDDEN_LAYER_SIZE {
             for j in 0..OUTPUT_LAYER_SIZE {
                 draw_line(
@@ -223,37 +267,66 @@ impl VizAdvanced {
                     hidden_start_y + i as f32 * hidden_spacing,
                     output_x,
                     output_start_y + j as f32 * output_spacing,
-                    1.5,
-                    Color::new(0.3, 0.3, 0.3, 0.2),
+                    1.0,
+                    Color::new(0.20, 0.22, 0.28, 0.15),
                 );
             }
         }
 
-        // Draw input nodes
+        // Input nodes
         for i in 0..INP_LAYER_SIZE {
             let y = input_start_y + i as f32 * input_spacing;
-            draw_circle(input_x, y, 7.0, ACCENT_COLOR);
-            draw_text(&format!("I{}", i), input_x - 35.0, y + 6.0, 18.0, TEXT_COLOR);
+            draw_circle(input_x, y, 7.0, ACCENT_CYAN);
+            draw_text(&format!("I{}", i), input_x - 35.0, y + 6.0, 16.0, TEXT_COLOR);
         }
 
-        // Draw hidden nodes
+        // Hidden nodes
         for i in 0..HIDDEN_LAYER_SIZE {
             let y = hidden_start_y + i as f32 * hidden_spacing;
             draw_circle(hidden_x, y, 8.0, Color::new(0.9, 0.6, 0.0, 1.0));
-            draw_text(&format!("H{}", i), hidden_x - 35.0, y + 6.0, 18.0, TEXT_COLOR);
+            draw_text(&format!("H{}", i), hidden_x - 35.0, y + 6.0, 16.0, TEXT_COLOR);
         }
 
-        // Draw output nodes with activation
+        // Output nodes with argmax detection
         let final_output = outputs.last().unwrap();
+        let mut argmax = 0;
+        let mut max_val = f64::NEG_INFINITY;
+        for (idx, &val) in final_output.iter().enumerate() {
+            if val > max_val {
+                max_val = val;
+                argmax = idx;
+            }
+        }
+
         for (i, &value) in final_output.iter().enumerate() {
             let y = output_start_y + i as f32 * output_spacing;
             let intensity = (value as f32).clamp(0.0, 1.0);
             let color = Color::new(intensity, intensity * 0.3, intensity * 0.9, 1.0);
+
+            // Active argmax halo and border
+            if i == argmax {
+                draw_circle(output_x, y, 14.0, Color::new(0.0, 0.90, 0.90, 0.22));
+                draw_circle_lines(output_x, y, 13.0, 2.0, WHITE);
+            }
+
             draw_circle(output_x, y, 10.0, color);
-            draw_text(output_labels[i], output_x + 22.0, y + 7.0, 20.0, TEXT_COLOR);
+
+            let label_color = if i == argmax {
+                ACCENT_CYAN
+            } else {
+                TEXT_COLOR
+            };
+            draw_text(
+                &format!("{} {:.3}", output_labels[i], value),
+                output_x + 22.0,
+                y + 7.0,
+                18.0,
+                label_color,
+            );
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_stats_panels(
         &self,
         gen: usize,
@@ -269,102 +342,136 @@ impl VizAdvanced {
         let left_col_width = screen_h - 320.0;
         let nn_width = 550.0;
         let panel_x = left_col_width + nn_width + 60.0;
-        let panel_w = screen_w - panel_x - 20.0;
-        let mut y = 20.0;
-
-        // SIM STATS
-        self.draw_panel(panel_x, y, panel_w, 150.0, "SIM STATS");
-        y += 45.0;
-        draw_text(&format!("Gen: {}", gen), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 30.0;
-        draw_text(&format!("Max: {}", max_score), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 30.0;
-        draw_text(&format!("Gen Max: {}", gen_max), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 30.0;
-        draw_text(&format!("Sim Ts: {:.2} secs", sim_time), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-
-        // VIZ STATS
-        y += 45.0;
-        self.draw_panel(panel_x, y, panel_w, 130.0, "VIZ STATS");
-        y += 45.0;
-        draw_text(&format!("Score: {}", current_score), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 30.0;
-        draw_text(&format!("Fitness: {:.2}", fitness), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 30.0;
-        draw_text(&format!("Steps: {}", steps), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-
-        // VIZ SCORE bar
-        y += 45.0;
-        self.draw_panel(panel_x, y, panel_w, 100.0, "VIZ SCORE");
-        y += 50.0;
-        let score_pct = (current_score as f32 / 20.0).min(1.0);
-        draw_rectangle(panel_x + 20.0, y, (panel_w - 40.0) * score_pct, 30.0, MAGENTA);
-        draw_rectangle_lines(panel_x + 20.0, y, panel_w - 40.0, 30.0, 2.0, PANEL_BORDER);
-        draw_text(&format!("{}%", (score_pct * 100.0) as i32), panel_x + panel_w / 2.0 - 20.0, y + 21.0, 18.0, WHITE);
-
-        // MAX SCORE bar
-        y += 70.0;
-        self.draw_panel(panel_x, y, panel_w, 100.0, "MAX SCORE");
-        y += 50.0;
-        let max_pct = (max_score as f32 / 20.0).min(1.0);
-        draw_rectangle(panel_x + 20.0, y, (panel_w - 40.0) * max_pct, 30.0, RED);
-        draw_rectangle_lines(panel_x + 20.0, y, panel_w - 40.0, 30.0, 2.0, PANEL_BORDER);
-        draw_text(&format!("{}%", (max_pct * 100.0) as i32), panel_x + panel_w / 2.0 - 20.0, y + 21.0, 18.0, WHITE);
-
-        // GEN TIMES chart
-        y += 80.0;
-        let chart_h = (screen_h - y - 20.0) / 2.0 - 10.0;
-        self.draw_chart(panel_x, y, panel_w, chart_h, "GEN TIMES", &self.gen_times, SKYBLUE);
-
-        // GEN SCORES chart
-        y += chart_h + 20.0;
-        let scores_f32: Vec<f32> = self.gen_scores.iter().map(|&s| s as f32).collect();
-        self.draw_chart(panel_x, y, panel_w, chart_h, "GEN SCORES", &scores_f32, GREEN);
-    }
-
-    fn draw_panel(&self, x: f32, y: f32, w: f32, h: f32, title: &str) {
-        draw_rectangle(x, y, w, h, PANEL_BG);
-        draw_rectangle_lines(x, y, w, h, 3.0, PANEL_BORDER);
-        draw_text(title, x + 20.0, y + 30.0, TITLE_SIZE, ACCENT_COLOR);
-    }
-
-    fn draw_chart(&self, x: f32, y: f32, w: f32, h: f32, title: &str, data: &[f32], color: Color) {
-        draw_rectangle(x, y, w, h, PANEL_BG);
-        draw_rectangle_lines(x, y, w, h, 3.0, PANEL_BORDER);
-        let max_val = if !data.is_empty() {
-            data.iter().fold(0.0f32, |a, &b| a.max(b))
-        } else {
-            0.0
-        };
-        let chart_title = if max_val > 0.0 {
-            format!("{} (MAX: {:.0})", title, max_val)
-        } else {
-            title.to_string()
-        };
-        draw_text(&chart_title, x + 20.0, y + 30.0, TITLE_SIZE, ACCENT_COLOR);
-
-        let count_text = format!("{}/{} GENS", data.len(), self.max_history_size);
-        draw_text(&count_text, x + w - 120.0, y + 28.0, 16.0, TEXT_COLOR);
-        
-        if data.is_empty() {
+        let panel_w = (screen_w - panel_x - 20.0).max(0.0);
+        if panel_w <= 10.0 {
             return;
         }
 
-        let chart_x = x + 20.0;
-        let chart_y = y + 50.0;
-        let chart_w = w - 40.0;
-        let chart_h = h - 70.0;
+        let stats_h = 160.0;
+        let run_h = 115.0;
+        let bar_h = 55.0;
+        let fixed_total = 20.0 + stats_h + 15.0 + run_h + 15.0 + bar_h + 10.0 + bar_h + 20.0;
+        let remaining_h = (screen_h - fixed_total - 20.0).max(120.0);
+        let chart_h = (remaining_h / 2.0) - 10.0;
 
-        let scale = max_val.max(1.0);
-        let step = chart_w / (self.max_history_size as f32).max(1.0);
-        let bar_w = (step - 1.0).max(2.0);
-
-        for (i, &val) in data.iter().enumerate() {
-            let bar_h = (val / scale) * chart_h;
-            let bar_x = chart_x + i as f32 * step;
-            let bar_y = chart_y + chart_h - bar_h;
-            draw_rectangle(bar_x, bar_y, bar_w, bar_h, color);
+        // 1. SIM STATS
+        let mut y = 20.0;
+        draw_terminal_box(panel_x, y, panel_w, stats_h, "SIM STATS", false);
+        let rows = [
+            ("Generación:", format!("{}", gen)),
+            ("Récord Histórico:", format!("{}", max_score)),
+            ("Máx Generación:", format!("{}", gen_max)),
+            ("Tiempo Simulación:", format!("{:.2}s", sim_time)),
+        ];
+        let mut row_y = y + 50.0;
+        for (lbl, val) in rows {
+            draw_text(lbl, panel_x + 18.0, row_y, TEXT_SIZE, TEXT_MUTED);
+            let val_dims = measure_text(&val, None, TEXT_SIZE as u16, 1.0);
+            draw_text(
+                &val,
+                panel_x + panel_w - val_dims.width - 18.0,
+                row_y,
+                TEXT_SIZE,
+                TEXT_COLOR,
+            );
+            row_y += 26.0;
         }
+
+        // 2. VIZ STATS
+        y += stats_h + 15.0;
+        draw_terminal_box(panel_x, y, panel_w, run_h, "VIZ STATS", false);
+        let run_rows = [
+            ("Puntuación:", format!("{}", current_score)),
+            ("Fitness:", format!("{:.1}", fitness)),
+            ("Pasos:", format!("{}", steps)),
+        ];
+        let mut run_row_y = y + 46.0;
+        for (lbl, val) in run_rows {
+            draw_text(lbl, panel_x + 18.0, run_row_y, TEXT_SIZE, TEXT_MUTED);
+            let val_dims = measure_text(&val, None, TEXT_SIZE as u16, 1.0);
+            draw_text(
+                &val,
+                panel_x + panel_w - val_dims.width - 18.0,
+                run_row_y,
+                TEXT_SIZE,
+                TEXT_COLOR,
+            );
+            run_row_y += 24.0;
+        }
+
+        // 3. VIZ SCORE Bar (normalized over step limit)
+        y += run_h + 15.0;
+        let score_fraction = (current_score as f32 / NUM_SIM_STEPS as f32).clamp(0.0, 1.0);
+        let score_label = format!("Score: {} / {}", current_score, NUM_SIM_STEPS);
+        draw_progress_bar(
+            panel_x,
+            y,
+            panel_w,
+            bar_h,
+            score_fraction,
+            &score_label,
+            ACCENT_CYAN,
+        );
+
+        // 4. MAX SCORE Bar
+        y += bar_h + 10.0;
+        let max_fraction = (max_score as f32 / NUM_SIM_STEPS as f32).clamp(0.0, 1.0);
+        let max_label = format!("Récord: {} / {}", max_score, NUM_SIM_STEPS);
+        draw_progress_bar(
+            panel_x,
+            y,
+            panel_w,
+            bar_h,
+            max_fraction,
+            &max_label,
+            ACCENT_GOLD,
+        );
+
+        // 5. GEN TIMES Chart
+        y += bar_h + 20.0;
+        let times_max = self
+            .gen_times
+            .iter()
+            .fold(0.0f32, |acc, &v| acc.max(v));
+        let times_label = if times_max > 0.0 {
+            format!("(MAX: {:.0})", times_max)
+        } else {
+            String::new()
+        };
+        draw_responsive_chart(
+            panel_x,
+            y,
+            panel_w,
+            chart_h,
+            "GEN TIMES",
+            &times_label,
+            &self.gen_times,
+            self.max_history_size,
+            SKYBLUE,
+        );
+
+        // 6. GEN SCORES Chart
+        y += chart_h + 10.0;
+        let scores_max = self
+            .gen_scores_f32
+            .iter()
+            .fold(0.0f32, |acc, &v| acc.max(v));
+        let scores_label = if scores_max > 0.0 {
+            format!("(MAX: {:.0})", scores_max)
+        } else {
+            String::new()
+        };
+        draw_responsive_chart(
+            panel_x,
+            y,
+            panel_w,
+            chart_h,
+            "GEN SCORES",
+            &scores_label,
+            &self.gen_scores_f32,
+            self.max_history_size,
+            ACCENT_GREEN,
+        );
     }
 
     fn draw_model_info(&self, _screen_w: f32, screen_h: f32) {
@@ -373,20 +480,57 @@ impl VizAdvanced {
         let panel_w = screen_h - 320.0;
         let panel_h = 280.0;
 
-        self.draw_panel(panel_x, panel_y, panel_w, panel_h, "SNAKE AI");
-        
-        let mut y = panel_y + 55.0;
-        draw_text(&format!("Agents: {}", NUM_GAMES_PER_STREAM), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 35.0;
-        draw_text(&format!("Step Limit: {}", NUM_SIM_STEPS), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 35.0;
-        draw_text(&format!("Mutation Rate: {}", BRAIN_MUTATION_RATE), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 35.0;
-        draw_text(&format!("Architecture: {}x{}x{}", INP_LAYER_SIZE, HIDDEN_LAYER_SIZE, OUTPUT_LAYER_SIZE), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 35.0;
-        draw_text(&format!("Streams: {}", NUM_STREAMS), panel_x + 20.0, y, TEXT_SIZE, TEXT_COLOR);
-        y += 45.0;
-        draw_text("Controls: [TAB] Viz  [SPACE] Slow  [V] VS  [ESC] Quit", panel_x + 20.0, y, 18.0, ACCENT_COLOR);
+        draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "GA CONFIG", false);
+
+        let rows = [
+            ("Población Agentes:", format!("{}", NUM_GAMES_PER_STREAM)),
+            ("Límite de Pasos:", format!("{}", NUM_SIM_STEPS)),
+            (
+                "Tasa Mutación:",
+                format!("{:.1}%", BRAIN_MUTATION_RATE * 100.0),
+            ),
+            (
+                "Arquitectura:",
+                format!(
+                    "{}x{}x{}",
+                    INP_LAYER_SIZE, HIDDEN_LAYER_SIZE, OUTPUT_LAYER_SIZE
+                ),
+            ),
+            ("Streams Simulación:", format!("{}", NUM_STREAMS)),
+        ];
+
+        let mut y = panel_y + 48.0;
+        for (lbl, val) in rows {
+            draw_text(lbl, panel_x + 18.0, y, 16.0, TEXT_MUTED);
+            let val_dims = measure_text(&val, None, 16, 1.0);
+            draw_text(
+                &val,
+                panel_x + panel_w - val_dims.width - 18.0,
+                y,
+                16.0,
+                TEXT_COLOR,
+            );
+            y += 24.0;
+        }
+
+        // Controls footer with retro badges
+        let ctrl_y = panel_y + panel_h - 36.0;
+        draw_text("Controles:", panel_x + 18.0, ctrl_y + 14.0, 15.0, TEXT_MUTED);
+
+        let shortcuts = [
+            ("TAB", "HUD"),
+            ("SPACE", "Vel"),
+            ("V", "VS"),
+            ("ESC", "Menú"),
+        ];
+        let mut badge_x = panel_x + 95.0;
+        for (key, act) in shortcuts {
+            let badge_w = measure_text(key, None, 13, 1.0).width + 12.0;
+            draw_badge(key, badge_x, ctrl_y, ACCENT_CYAN);
+            badge_x += badge_w + 4.0;
+            draw_text(act, badge_x, ctrl_y + 14.0, 14.0, TEXT_COLOR);
+            badge_x += measure_text(act, None, 14, 1.0).width + 10.0;
+        }
     }
 }
 
