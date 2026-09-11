@@ -35,6 +35,10 @@ use crate::dqn::{
     EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE, REPLAY_BUFFER_SIZE,
 };
 use crate::game_dqn::GameDQN;
+use crate::ui_kit::{
+    draw_badge, draw_progress_bar, draw_responsive_chart, draw_terminal_box, ACCENT_CYAN,
+    ACCENT_GOLD, ACCENT_GREEN, COLOR_BG, PANEL_BORDER, TEXT_MUTED,
+};
 use macroquad::prelude::*;
 
 /// Max entries kept by [`EpisodeHistory`], mirroring `VizAdvanced`'s 50-entry
@@ -56,6 +60,8 @@ pub struct EpisodeHistory {
     pub times: Vec<f32>,
     /// Episode final scores, oldest first (index-aligned with `times`).
     pub scores: Vec<usize>,
+    /// Pre-converted f32 episode final scores for allocation-free chart rendering.
+    pub scores_f32: Vec<f32>,
     cap: usize,
 }
 
@@ -65,6 +71,7 @@ impl EpisodeHistory {
         Self {
             times: Vec::new(),
             scores: Vec::new(),
+            scores_f32: Vec::new(),
             cap: EPISODE_HISTORY_CAP,
         }
     }
@@ -73,14 +80,16 @@ impl EpisodeHistory {
     /// ring holds at most `cap` entries with the newest last.
     pub fn push(&mut self, time: f32, score: usize) {
         debug_assert!(
-            self.times.len() == self.scores.len(),
+            self.times.len() == self.scores.len() && self.scores.len() == self.scores_f32.len(),
             "EpisodeHistory invariant broken: times/scores out of alignment"
         );
         self.times.push(time);
         self.scores.push(score);
+        self.scores_f32.push(score as f32);
         while self.len() > self.cap {
             self.times.remove(0);
             self.scores.remove(0);
+            self.scores_f32.remove(0);
         }
     }
 
@@ -88,6 +97,7 @@ impl EpisodeHistory {
     pub fn clear(&mut self) {
         self.times.clear();
         self.scores.clear();
+        self.scores_f32.clear();
     }
 
     /// Number of recorded episodes (`scores.len() == times.len()`).
@@ -118,25 +128,27 @@ fn score_bar_fraction(score: usize) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// VizAdvanced-grammar constants copied verbatim (design D-2). The reference
-// (`viz_advanced.rs`) is under a zero-diff guard; nothing is exported from it
-// or shared with it — the mirror is self-contained so the whole diff can be
-// reviewed line by line against the reference.
+// Retro-Terminal UI Helpers
 // ---------------------------------------------------------------------------
 
-const PANEL_BG: Color = Color::new(0.05, 0.05, 0.05, 0.95);
-const PANEL_BORDER: Color = Color::new(0.4, 0.4, 0.4, 1.0);
-const TEXT_COLOR: Color = Color::new(0.9, 0.9, 0.9, 1.0);
-const ACCENT_COLOR: Color = Color::new(0.0, 0.9, 0.9, 1.0);
-const TITLE_SIZE: f32 = 22.0;
-const TEXT_SIZE: f32 = 18.0;
+/// Helper to draw a key-value metric row with right-aligned value for retro-terminal panels.
+fn draw_stat_row(x: f32, y: f32, w: f32, label: &str, value: &str) {
+    draw_text(label, x, y, 14.0, TEXT_MUTED);
+    let dims = measure_text(value, None, 14, 1.0);
+    draw_text(value, x + w - dims.width, y, 14.0, WHITE);
+}
 
-/// One bordered panel with its accent title — same body/geometry as the
-/// reference `VizAdvanced::draw_panel` (title baseline at `y + 30`).
-fn draw_panel(x: f32, y: f32, w: f32, h: f32, title: &str) {
-    draw_rectangle(x, y, w, h, PANEL_BG);
-    draw_rectangle_lines(x, y, w, h, 3.0, PANEL_BORDER);
-    draw_text(title, x + 20.0, y + 30.0, TITLE_SIZE, ACCENT_COLOR);
+/// Draw a formatted shortcut key badge with its description text.
+fn draw_key_badge(x: f32, y: f32, key: &str, desc: &str) -> f32 {
+    let font_size = 13.0;
+    let dims = measure_text(key, None, font_size as u16, 1.0);
+    let pad_x = 7.0;
+    let badge_w = dims.width + pad_x * 2.0;
+    draw_badge(key, x, y, ACCENT_CYAN);
+    let desc_x = x + badge_w + 6.0;
+    draw_text(desc, desc_x, y + 14.5, font_size, TEXT_MUTED);
+    let desc_dims = measure_text(desc, None, font_size as u16, 1.0);
+    badge_w + 6.0 + desc_dims.width
 }
 
 /// Left column: the live `GameDQN` grid — reference `draw_game_grid` geometry
@@ -196,17 +208,9 @@ fn draw_grid(game: &GameDQN, screen_h: f32, theme: crate::theme::GameTheme) {
     }
 }
 
-/// Center column: full-height "NEURAL NETWORK" panel — reference
-/// `draw_neural_network` geometry verbatim (`left_col_width = screen_h − 320`,
-/// `panel_x = left_col_width + 40`, `panel_w = 550`, `panel_h = screen_h − 40`,
-/// `y = 20`). Fed LIVE every frame: the current 9-input relative observation
-/// through the q-network (`predict(&game.observation()).last()`) — same sigmoid
-/// output domain as the reference, so the output-node color mapping transfers
-/// unchanged (design D-4/D-5). Input nodes I0..I8 (accent, r=7), hidden nodes
-/// H0..H31 (orange `(0.9,0.6,0.0)`, r=8), output nodes (r=10) colored by
-/// [`output_intensity`] → `(v, v*0.3, v*0.9)` with labels
-/// `["STRAIGHT","TURN LEFT","TURN RIGHT"]` (order matches relative action
-/// 0=forward, 1=left-turn, 2=right-turn).
+/// Center column: full-height "NEURAL NETWORK" panel — retro-terminal layout
+/// with subtle synapse lines, input and hidden node readouts, active output node
+/// glow and border for the argmax action, and columnar label/value alignment.
 fn draw_neural_network(game: &GameDQN, screen_h: f32) {
     let left_col_width = screen_h - 320.0;
     let panel_w = 550.0;
@@ -214,20 +218,18 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
     let panel_x = left_col_width + 40.0;
     let panel_y = 20.0;
 
-    draw_rectangle(panel_x, panel_y, panel_w, panel_h, PANEL_BG);
-    draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 3.0, PANEL_BORDER);
-    draw_text("NEURAL NETWORK", panel_x + 20.0, panel_y + 28.0, TITLE_SIZE, ACCENT_COLOR);
+    draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "NEURAL NETWORK", false);
 
-    let outputs = game.agent.q_network.predict(&game.observation());
+    let outputs = game.agent.q_network.predict_linear_output(&game.observation());
     if outputs.is_empty() {
         return;
     }
 
     // Vertical layout - layers from left to right
-    let layer_spacing = 160.0;
+    let layer_spacing = 145.0;
 
     // Input layer (9 nodes) - leftmost
-    let input_x = panel_x + 80.0;
+    let input_x = panel_x + 60.0;
     let input_start_y = panel_y + 80.0;
     let input_spacing = (panel_h - 160.0) / (DQN_INP_LAYER_SIZE as f32 - 1.0);
 
@@ -242,184 +244,166 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
     let output_spacing = (panel_h - 500.0) / (DQN_OUTPUT_LAYER_SIZE as f32 - 1.0);
     let output_labels = ["STRAIGHT", "TURN LEFT", "TURN RIGHT"];
 
+    // Subtle synapse lines (inactive connections)
+    let synapse_color = Color::new(0.2, 0.2, 0.25, 0.15);
+
     // Draw ALL connections: Input -> Hidden
     for i in 0..DQN_INP_LAYER_SIZE {
+        let iy = input_start_y + i as f32 * input_spacing;
         for j in 0..DQN_HIDDEN_LAYER_SIZE {
-            draw_line(
-                input_x,
-                input_start_y + i as f32 * input_spacing,
-                hidden_x,
-                hidden_start_y + j as f32 * hidden_spacing,
-                1.5,
-                Color::new(0.3, 0.3, 0.3, 0.2),
-            );
+            let hy = hidden_start_y + j as f32 * hidden_spacing;
+            draw_line(input_x, iy, hidden_x, hy, 1.0, synapse_color);
         }
     }
 
     // Draw ALL connections: Hidden -> Output
     for i in 0..DQN_HIDDEN_LAYER_SIZE {
+        let hy = hidden_start_y + i as f32 * hidden_spacing;
         for j in 0..DQN_OUTPUT_LAYER_SIZE {
-            draw_line(
-                hidden_x,
-                hidden_start_y + i as f32 * hidden_spacing,
-                output_x,
-                output_start_y + j as f32 * output_spacing,
-                1.5,
-                Color::new(0.3, 0.3, 0.3, 0.2),
-            );
+            let oy = output_start_y + j as f32 * output_spacing;
+            draw_line(hidden_x, hy, output_x, oy, 1.0, synapse_color);
         }
     }
 
     // Draw input nodes
     for i in 0..DQN_INP_LAYER_SIZE {
         let y = input_start_y + i as f32 * input_spacing;
-        draw_circle(input_x, y, 7.0, ACCENT_COLOR);
-        draw_text(&format!("I{}", i), input_x - 35.0, y + 6.0, 18.0, TEXT_COLOR);
+        draw_circle(input_x, y, 7.0, ACCENT_CYAN);
+        draw_text(&format!("I{}", i), input_x - 30.0, y + 5.0, 15.0, TEXT_MUTED);
     }
 
     // Draw hidden nodes
     for i in 0..DQN_HIDDEN_LAYER_SIZE {
         let y = hidden_start_y + i as f32 * hidden_spacing;
-        draw_circle(hidden_x, y, 8.0, Color::new(0.9, 0.6, 0.0, 1.0));
-        draw_text(&format!("H{}", i), hidden_x - 35.0, y + 6.0, 18.0, TEXT_COLOR);
+        draw_circle(hidden_x, y, 6.5, Color::new(0.9, 0.6, 0.0, 1.0));
+        draw_text(&format!("H{}", i), hidden_x - 32.0, y + 5.0, 14.0, TEXT_MUTED);
     }
 
     // Draw output nodes with activation: continuous Q-value readout per action
-    // (raw sigmoid output) plus a white ring + accent label on the argmax, so
-    // the agent's preferred action is readable at a glance.
+    // plus active node glow, ring, and neon cyan action text on the argmax.
     let final_output = outputs.last().unwrap();
     let argmax = argmax_index(final_output);
     for (i, &value) in final_output.iter().enumerate() {
         let y = output_start_y + i as f32 * output_spacing;
         let intensity = output_intensity(value) as f32;
         let color = Color::new(intensity, intensity * 0.3, intensity * 0.9, 1.0);
-        draw_circle(output_x, y, 10.0, color);
+
         if i == argmax {
-            draw_circle_lines(output_x, y, 13.0, 2.0, WHITE);
+            // Active output node: neon cyan glow and border ring
+            draw_circle(output_x, y, 16.0, Color::new(0.0, 0.90, 0.90, 0.22));
+            draw_circle(output_x, y, 10.0, color);
+            draw_circle_lines(output_x, y, 13.0, 2.0, ACCENT_CYAN);
+        } else {
+            draw_circle(output_x, y, 10.0, color);
+            draw_circle_lines(output_x, y, 12.0, 1.0, Color::new(0.3, 0.35, 0.4, 0.6));
         }
-        let label_color = if i == argmax { ACCENT_COLOR } else { TEXT_COLOR };
-        draw_text(
-            &format!("{} {:.3}", output_labels[i], value),
-            output_x + 22.0,
-            y + 7.0,
-            20.0,
-            label_color,
-        );
+
+        let label = output_labels[i];
+        let val_str = format!("{:.3}", value);
+        let (label_color, val_color) = if i == argmax {
+            (ACCENT_CYAN, ACCENT_CYAN)
+        } else {
+            (TEXT_MUTED, Color::new(0.85, 0.85, 0.85, 1.0))
+        };
+
+        // Clean columnar alignment: action name followed by Q-value
+        draw_text(label, output_x + 22.0, y + 6.0, 16.0, label_color);
+        draw_text(&val_str, output_x + 130.0, y + 6.0, 16.0, val_color);
     }
 }
 
-/// Bottom-left model-info panel — reference `draw_model_info` geometry verbatim
-/// (`x=20, y=screen_h − 300, w=screen_h − 320, h=280`), title "DQN TRAIN".
-/// Every row value comes from the pub seams (design D-5/D-6), never a literal:
-/// architecture/batch/gamma/LR/epsilon-schedule/step-limit, then an
-/// accent controls line at the panel bottom (replaces the shell hint in this
-/// zone — design D-8). The replay-buffer row moved to the right column's
-/// TRAINING STATS panel.
+/// Bottom-left model-info panel — retro-terminal panel displaying
+/// hyperparameters and structured keyboard shortcuts with badge frames.
 fn draw_model_info(_game: &GameDQN, screen_h: f32) {
     let panel_x = 20.0;
     let panel_y = screen_h - 300.0;
     let panel_w = screen_h - 320.0;
     let panel_h = 280.0;
 
-    draw_panel(panel_x, panel_y, panel_w, panel_h, "DQN TRAIN");
+    draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "DQN TRAIN", false);
 
-    let mut y = panel_y + 55.0;
-    draw_text(
+    let mut y = panel_y + 48.0;
+    draw_stat_row(
+        panel_x + 16.0,
+        y,
+        panel_w - 32.0,
+        "Architecture:",
         &format!(
-            "Architecture: {}x{}x{}",
+            "{}x{}x{}",
             DQN_INP_LAYER_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE
         ),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
     );
-    y += 26.0;
-    draw_text(
-        &format!("Batch: {} | Gamma: {:.2}", BATCH_SIZE, GAMMA),
-        panel_x + 20.0,
+    y += 24.0;
+    draw_stat_row(
+        panel_x + 16.0,
         y,
-        TEXT_SIZE,
-        TEXT_COLOR,
+        panel_w - 32.0,
+        "Batch / Gamma:",
+        &format!("{} / {:.2}", BATCH_SIZE, GAMMA),
     );
-    y += 26.0;
-    draw_text(
-        &format!("LR: {}", LEARNING_RATE),
-        panel_x + 20.0,
+    y += 24.0;
+    draw_stat_row(
+        panel_x + 16.0,
         y,
-        TEXT_SIZE,
-        TEXT_COLOR,
+        panel_w - 32.0,
+        "Learning Rate:",
+        &format!("{}", LEARNING_RATE),
     );
-    y += 26.0;
-    draw_text(
-        &format!(
-            "Epsilon: {:.2} -> {:.2} (x{:.3})",
-            EPSILON_START, EPSILON_END, EPSILON_DECAY
-        ),
-        panel_x + 20.0,
+    y += 24.0;
+    draw_stat_row(
+        panel_x + 16.0,
         y,
-        TEXT_SIZE,
-        TEXT_COLOR,
+        panel_w - 32.0,
+        "Epsilon Schedule:",
+        &format!("{:.2} -> {:.2} (x{:.3})", EPSILON_START, EPSILON_END, EPSILON_DECAY),
     );
-    y += 26.0;
-    draw_text(
-        &format!("Step Limit: {}", NUM_SIM_STEPS * 2),
-        panel_x + 20.0,
+    y += 24.0;
+    draw_stat_row(
+        panel_x + 16.0,
         y,
-        TEXT_SIZE,
-        TEXT_COLOR,
+        panel_w - 32.0,
+        "Step Limit:",
+        &format!("{}", NUM_SIM_STEPS * 2),
     );
-    // Accent controls line at the panel bottom (mirrors the reference's
-    // controls row at `panel_y + 240`).
-    y += 55.0;
-    draw_text(
-        "Controls: [TAB] HUD  [R] Fresh Agent  [ESC] Menu",
-        panel_x + 20.0,
-        y,
-        18.0,
-        ACCENT_COLOR,
-    );
-}
 
-/// One bar chart panel — reference `VizAdvanced::draw_chart` body verbatim:
-/// title at `+20/+30`, chart region `chart_x/y = +20/+50`, `chart_w = w−40`,
-/// `chart_h = h−70`, `max_val = data.max().max(1.0)`, `step = chart_w / len`,
-/// bar `w = step.max(4) − 1`. Self-normalizing against the series max with a
-/// 1.0 floor, so an empty/all-zero series draws no bars and never divides by
-/// zero (spec "empty history charts render safely").
-fn draw_chart(x: f32, y: f32, w: f32, h: f32, title: &str, data: &[f32], color: Color) {
-    draw_rectangle(x, y, w, h, PANEL_BG);
-    draw_rectangle_lines(x, y, w, h, 3.0, PANEL_BORDER);
-    draw_text(title, x + 20.0, y + 30.0, TITLE_SIZE, ACCENT_COLOR);
+    // Separator before controls
+    draw_line(
+        panel_x + 16.0,
+        panel_y + 180.0,
+        panel_x + panel_w - 16.0,
+        panel_y + 180.0,
+        1.0,
+        PANEL_BORDER,
+    );
 
-    if data.is_empty() {
-        return;
-    }
+    // Formatted keyboard shortcuts with badge frames
+    draw_text("CONTROLS", panel_x + 16.0, panel_y + 204.0, 13.0, ACCENT_GOLD);
 
-    let chart_x = x + 20.0;
-    let chart_y = y + 50.0;
-    let chart_w = w - 40.0;
-    let chart_h = h - 70.0;
-
-    let max_val = data.iter().fold(0.0f32, |a, &b| a.max(b)).max(1.0);
-    let step = chart_w / data.len().max(1) as f32;
-
-    for (i, &val) in data.iter().enumerate() {
-        let bar_h = (val / max_val) * chart_h;
-        let bar_x = chart_x + i as f32 * step;
-        let bar_y = chart_y + chart_h - bar_h;
-        draw_rectangle(bar_x, bar_y, step.max(4.0) - 1.0, bar_h, color);
+    let shortcuts = [
+        ("TAB", "HUD"),
+        ("R", "Nuevo Agente"),
+        ("ESC", "Menú"),
+    ];
+    let mut cur_x = panel_x + 16.0;
+    let mut cur_y = panel_y + 218.0;
+    for (key, desc) in &shortcuts {
+        let item_w = {
+            let k_dims = measure_text(key, None, 13, 1.0);
+            let d_dims = measure_text(desc, None, 13, 1.0);
+            k_dims.width + 14.0 + 6.0 + d_dims.width
+        };
+        if cur_x + item_w > panel_x + panel_w - 16.0 && cur_x > panel_x + 20.0 {
+            cur_x = panel_x + 16.0;
+            cur_y += 26.0;
+        }
+        let w = draw_key_badge(cur_x, cur_y, key, desc);
+        cur_x += w + 12.0;
     }
 }
 
-/// Right column: stacked stats panels, score bars, and the per-episode history
-/// charts — reference `draw_stats_panels` geometry (`x = left_col_width + 550
-/// + 60`, `w = screen_w − x − 20`). Panel slots re-stacked for the DQN
-/// workflow: TRAINING STATS (Episode/Epsilon/Loss/Buffer/Target Updates/Best)
-/// @ y=20 h=180, RUN STATS @ y=230 h=130, SCORE bar @ 380, BEST bar @ 500,
-/// charts @ 630, with DQN rows/data inside. The SCORE and BEST
-/// bars both use [`score_bar_fraction`] over the documented episode bound — the
-/// GA `/20` denominator is never used (design §3).
+/// Right column: stacked stats panels, score progress bars, and the per-episode history
+/// charts. Dynamically calculates available height so charts never clip or collapse on
+/// smaller screens.
 fn draw_stats_panels(
     game: &GameDQN,
     episode: usize,
@@ -433,141 +417,111 @@ fn draw_stats_panels(
     let panel_x = left_col_width + nn_width + 60.0;
     let panel_w = screen_w - panel_x - 20.0;
 
-    // TRAINING STATS (h=180, six compact rows @24px). Metrics mirror the DQN
-    // workflow: episode, exploration rate, smoothed TD loss, replay-buffer
-    // fill, target-network syncs, and the session best.
+    if panel_w <= 10.0 {
+        return;
+    }
+
+    let stats_h = 160.0;
+    let run_h = 95.0;
+    let bar_h = 55.0;
+    let fixed_total = 20.0 + stats_h + 15.0 + run_h + 15.0 + bar_h + 10.0 + bar_h + 20.0;
+    let remaining_h = (screen_h - fixed_total - 20.0).max(120.0);
+    let chart_h = (remaining_h / 2.0) - 10.0;
+
+    // TRAINING STATS
     let stats_y = 20.0;
-    draw_panel(panel_x, stats_y, panel_w, 180.0, "TRAINING STATS");
-    let mut y = stats_y + 55.0;
-    draw_text(
-        &format!("Episode: {}", episode),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
-    y += 24.0;
-    draw_text(
-        &format!("Epsilon: {:.3}", game.agent.get_epsilon()),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
-    y += 24.0;
-    draw_text(
-        &format!("Loss: {:.5}", game.agent.loss_ema()),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
-    y += 24.0;
-    draw_text(
-        &format!(
-            "Buffer: {}/{}",
-            game.agent.replay_buffer.len(),
-            REPLAY_BUFFER_SIZE
-        ),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
-    y += 24.0;
-    draw_text(
-        &format!("Target Updates: {}", game.agent.target_updates()),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
-    y += 24.0;
-    draw_text(
-        &format!("Best: {}", best_score),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
+    draw_terminal_box(panel_x, stats_y, panel_w, stats_h, "TRAINING STATS", false);
+    let mut y = stats_y + 45.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Episode:", &format!("{}", episode));
+    y += 19.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Epsilon:", &format!("{:.3}", game.agent.get_epsilon()));
+    y += 19.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Loss:", &format!("{:.5}", game.agent.loss_ema()));
+    y += 19.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Buffer:", &format!("{}/{}", game.agent.replay_buffer.len(), REPLAY_BUFFER_SIZE));
+    y += 19.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Target Updates:", &format!("{}", game.agent.target_updates()));
+    y += 19.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Best:", &format!("{}", best_score));
 
-    // RUN STATS (h=130) — shifted down to y=230 to fit the taller TRAINING STATS.
-    let run_y = 230.0;
-    draw_panel(panel_x, run_y, panel_w, 130.0, "RUN STATS");
-    y = run_y + 45.0;
-    draw_text(
-        &format!("Score: {}", game.score),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
-    y += 30.0;
-    draw_text(
-        &format!("Steps: {}", game.steps),
-        panel_x + 20.0,
-        y,
-        TEXT_SIZE,
-        TEXT_COLOR,
-    );
+    // RUN STATS
+    let run_y = stats_y + stats_h + 15.0;
+    draw_terminal_box(panel_x, run_y, panel_w, run_h, "RUN STATS", false);
+    y = run_y + 48.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Score:", &format!("{}", game.score));
+    y += 24.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Steps:", &format!("{}", game.steps));
 
-    // SCORE bar (live game score) at y=380.
-    let score_bar_y = 380.0;
-    draw_panel(panel_x, score_bar_y, panel_w, 100.0, "SCORE");
+    // SCORE progress bar
+    let score_bar_y = run_y + run_h + 15.0;
     let score_pct = score_bar_fraction(game.score);
-    let bar_y = score_bar_y + 50.0;
-    draw_rectangle(panel_x + 20.0, bar_y, (panel_w - 40.0) * score_pct, 30.0, MAGENTA);
-    draw_rectangle_lines(panel_x + 20.0, bar_y, panel_w - 40.0, 30.0, 2.0, PANEL_BORDER);
-    draw_text(
-        &format!("{:.0}%", score_pct * 100.0),
-        panel_x + panel_w / 2.0 - 20.0,
-        bar_y + 21.0,
-        18.0,
-        WHITE,
-    );
-
-    // BEST bar (session best) at y=500.
-    let best_bar_y = 500.0;
-    draw_panel(panel_x, best_bar_y, panel_w, 100.0, "BEST");
-    let best_pct = score_bar_fraction(best_score);
-    let bar_y = best_bar_y + 50.0;
-    draw_rectangle(panel_x + 20.0, bar_y, (panel_w - 40.0) * best_pct, 30.0, RED);
-    draw_rectangle_lines(panel_x + 20.0, bar_y, panel_w - 40.0, 30.0, 2.0, PANEL_BORDER);
-    draw_text(
-        &format!("{:.0}%", best_pct * 100.0),
-        panel_x + panel_w / 2.0 - 20.0,
-        bar_y + 21.0,
-        18.0,
-        WHITE,
-    );
-
-    // History charts at y=630.
-    let chart_y = 630.0;
-    let chart_h = (screen_h - chart_y - 20.0) / 2.0 - 10.0;
-    draw_chart(
+    let score_label = format!("SCORE: {}", game.score);
+    draw_progress_bar(
         panel_x,
-        chart_y,
+        score_bar_y,
+        panel_w,
+        bar_h,
+        score_pct,
+        &score_label,
+        ACCENT_CYAN,
+    );
+
+    // BEST progress bar
+    let best_bar_y = score_bar_y + bar_h + 10.0;
+    let best_pct = score_bar_fraction(best_score);
+    let best_label = format!("BEST: {}", best_score);
+    draw_progress_bar(
+        panel_x,
+        best_bar_y,
+        panel_w,
+        bar_h,
+        best_pct,
+        &best_label,
+        ACCENT_GOLD,
+    );
+
+    // Responsive history charts (zero heap allocations inside per-frame loop)
+    let chart1_y = fixed_total;
+    let max_time = history.times.iter().fold(0.0f32, |a, &b| a.max(b));
+    let time_max_label = if history.times.is_empty() {
+        String::new()
+    } else {
+        format!("MAX: {:.0}", max_time)
+    };
+    draw_responsive_chart(
+        panel_x,
+        chart1_y,
         panel_w,
         chart_h,
         "EPISODE TIMES",
+        &time_max_label,
         &history.times,
-        SKYBLUE,
+        EPISODE_HISTORY_CAP,
+        ACCENT_CYAN,
     );
-    let scores_f32: Vec<f32> = history.scores.iter().map(|&s| s as f32).collect();
-    draw_chart(
+
+    let chart2_y = chart1_y + chart_h + 20.0;
+    let max_score = history.scores.iter().max().copied().unwrap_or(0);
+    let score_max_label = if history.scores.is_empty() {
+        String::new()
+    } else {
+        format!("MAX: {}", max_score)
+    };
+    draw_responsive_chart(
         panel_x,
-        chart_y + chart_h + 20.0,
+        chart2_y,
         panel_w,
         chart_h,
         "EPISODE SCORES",
-        &scores_f32,
-        GREEN,
+        &score_max_label,
+        &history.scores_f32,
+        EPISODE_HISTORY_CAP,
+        ACCENT_GREEN,
     );
 }
 
-/// Dashboard entry point (design D-3/D-4): starts with `clear_background(BLACK)`
-/// (mirroring `sim.rs::draw_advanced`)/// Master renderer: clear the frame and draw the four panels in
-/// reference order — left grid + model info, center network, right
+/// Dashboard entry point (design D-3/D-4): starts with `clear_background(COLOR_BG)`
+/// and draws the four panels in order — left grid + model info, center network, right
 /// stats/charts. Borrows only `&GameDQN`, the view's two scalars and the ring.
 pub fn draw(game: &GameDQN, episode: usize, best_score: usize, history: &EpisodeHistory) {
     let theme = crate::theme::load_theme();
@@ -584,7 +538,7 @@ pub fn draw_with_theme(
 ) {
     let screen_w = screen_width();
     let screen_h = screen_height();
-    clear_background(BLACK);
+    clear_background(COLOR_BG);
     draw_grid(game, screen_h, theme);
     draw_model_info(game, screen_h);
     draw_neural_network(game, screen_h);
@@ -631,6 +585,7 @@ mod tests {
         {
             assert_eq!(*time, (n + 5) as f32, "pair {n} time out of order");
             assert_eq!(*score, (n + 5) * 10, "pair {n} score out of order");
+            assert_eq!(history.scores_f32[n], (n + 5) as f32 * 10.0, "scores_f32 {n} out of order");
         }
     }
 
@@ -643,12 +598,13 @@ mod tests {
         history.clear();
         assert_eq!(history.len(), 0, "clear empties the ring");
         assert!(
-            history.times.is_empty() && history.scores.is_empty(),
-            "clear empties both vectors"
+            history.times.is_empty() && history.scores.is_empty() && history.scores_f32.is_empty(),
+            "clear empties all vectors"
         );
         history.push(3.0, 9);
         assert_eq!(history.times, vec![3.0], "cleared ring accepts new entries");
         assert_eq!(history.scores, vec![9]);
+        assert_eq!(history.scores_f32, vec![9.0]);
     }
 
     // --- output_intensity clamp (design seam 5 / spec "output-node color
