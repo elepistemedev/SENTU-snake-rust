@@ -23,7 +23,8 @@ use crate::viz_vs::VsFlavor;
 
 /// Message shown when no best-ever GA champion exists anywhere (no
 /// `sim_metadata.json` best net and no `best_snake.json` fallback).
-pub const GA_CHAMPIONS_MISSING_MESSAGE: &str = "Train GA first to create champions";
+pub const GA_CHAMPIONS_MISSING_MESSAGE: &str =
+    "Entrena el Algoritmo Genético primero para crear campeones (necesita best_snake.json)";
 
 /// Pure decision of who plays a standalone GA match given the champions loaded
 /// off disk. The best-ever net is required; when the metadata carried no second

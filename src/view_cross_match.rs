@@ -23,12 +23,14 @@ use crate::view_dqn_train::DQN_CHAMPION_FILE;
 use crate::viz_vs::VsFlavor;
 
 /// Message shown when the GA side (`best_snake.json`) has no champion.
-pub const GA_MISSING_MESSAGE: &str = "GA champion missing - train GA first (needs best_snake.json)";
+pub const GA_MISSING_MESSAGE: &str =
+    "Falta el campeón del Algoritmo Genético - entrena primero (necesita best_snake.json)";
 /// Message shown when the DQN side (`dqn_champion.json`) has no champion.
 pub const DQN_MISSING_MESSAGE: &str =
-    "DQN champion missing - train DQN first (needs dqn_champion.json)";
+    "Falta el campeón DQN - entrena DQN primero (necesita dqn_champion.json)";
 /// Message shown when neither side has a champion.
-pub const BOTH_MISSING_MESSAGE: &str = "No champions yet - train GA and DQN first";
+pub const BOTH_MISSING_MESSAGE: &str =
+    "Faltan ambos campeones - entrena Algoritmo Genético y DQN primero";
 
 /// Which players were available for a cross match, and which side is missing.
 pub enum CrossMatchPlayers {
@@ -79,24 +81,24 @@ const GA_COLOR: Color = Color::new(0.3, 0.9, 0.3, 1.0);
 /// Accent color for player 2 (the DQN champion) — a distinct blue.
 const DQN_COLOR: Color = Color::new(0.35, 0.65, 0.95, 1.0);
 
-/// The cross flavor: "GA" (green, left) vs "DQN" (blue, right), no record
+/// The cross flavor: "ALGORITMO GENÉTICO" (green, left) vs "DQN" (blue, right), no record
 /// semantics, winner/back labels per spec.
 fn cross_flavor() -> VsFlavor {
     VsFlavor {
-        player1_title: "GA",
+        player1_title: "ALGORITMO GENÉTICO",
         player2_title: "DQN",
         player1_color: GA_COLOR,
         player2_color: DQN_COLOR,
         record: None,
         record_beat_label: "",
         new_record_label: "",
-        winner1_label: "GA WINS!",
-        winner2_label: "DQN WINS!",
-        tie_label: "TIE!",
-        eliminated1_label: "GA eliminated!",
-        eliminated2_label: "DQN eliminated!",
-        back_label: "[ESC] Menu",
-        controls_label: "[ESC] Menu",
+        winner1_label: "ALGORITMO GENÉTICO GANA!",
+        winner2_label: "DQN GANA!",
+        tie_label: "EMPATE!",
+        eliminated1_label: "Algoritmo Genético eliminado!",
+        eliminated2_label: "DQN eliminado!",
+        back_label: "[ESC] Menú",
+        controls_label: "[ESC] Menú",
     }
 }
 
