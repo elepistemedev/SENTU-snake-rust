@@ -21,6 +21,7 @@ pub const DQN_ARCH: [usize; 3] = [DQN_INP_LAYER_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN
 pub const TARGET_UPDATE_INTERVAL: usize = 100;
 pub const LOSS_EMA_ALPHA: f64 = 0.05;
 pub const DQN_STEP_LIMIT: usize = 500;
+pub const EPSILON_WARM_START: f64 = 0.3;
 
 #[derive(Clone)]
 pub struct Experience {
@@ -112,6 +113,21 @@ impl DQNAgent {
             target_network,
             replay_buffer: ReplayBuffer::new(REPLAY_BUFFER_SIZE),
             epsilon: EPSILON_START,
+            steps: 0,
+            loss_ema: 0.0,
+            target_updates: 0,
+        }
+    }
+
+    /// Construct an agent initialized with pre-trained network weights and a custom epsilon.
+    /// Used for warm-start / fine-tuning continuous training from a saved champion.
+    pub fn with_network(q_network: Net, epsilon: f64) -> Self {
+        let target_network = q_network.clone();
+        Self {
+            q_network,
+            target_network,
+            replay_buffer: ReplayBuffer::new(REPLAY_BUFFER_SIZE),
+            epsilon: epsilon.clamp(EPSILON_END, EPSILON_START),
             steps: 0,
             loss_ema: 0.0,
             target_updates: 0,
@@ -389,5 +405,14 @@ mod tests {
         }
         let q_vals = agent.q_network.predict_linear_output(&vec![0.5; 9]).pop().unwrap();
         assert!(q_vals[1] < 0.0, "linear Q-network must be able to learn negative Q-values, got {}", q_vals[1]);
+    }
+
+    #[test]
+    fn dqn_agent_with_network_preserves_weights_and_epsilon() {
+        let net = Net::new_with_sizes(&DQN_ARCH);
+        let agent = DQNAgent::with_network(net.clone(), 0.25);
+        assert_eq!(agent.get_epsilon(), 0.25);
+        assert_eq!(agent.q_network.layers.len(), net.layers.len());
+        assert_eq!(agent.target_network.layers.len(), net.layers.len());
     }
 }

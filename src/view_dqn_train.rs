@@ -114,17 +114,22 @@ impl DqnTrainView {
             format!("{champion_path}.meta.json")
         };
         let metadata = champion_store::load_metadata(&meta_path);
-        let (best_score, episode) = if champion.is_some() {
+        let (best_score, episode, epsilon) = if champion.is_some() {
             if let Some(m) = metadata {
-                (m.best_score, m.episode)
+                (m.best_score, m.episode, m.epsilon)
             } else {
-                (1, 0)
+                (1, 0, crate::dqn::EPSILON_WARM_START)
             }
         } else {
-            (0, 0)
+            (0, 0, crate::dqn::EPSILON_START)
+        };
+        let game = if let Some(ref champ) = champion {
+            GameDQN::with_network(champ, epsilon)
+        } else {
+            GameDQN::new()
         };
         Self {
-            game: GameDQN::new(),
+            game,
             episode,
             best_score,
             champion,
@@ -174,6 +179,7 @@ impl DqnTrainView {
             let meta = champion_store::DqnMetadata {
                 best_score: self.best_score,
                 episode: self.episode,
+                epsilon: self.game.agent.get_epsilon(),
             };
             let meta_path = if self.champion_path == DQN_CHAMPION_FILE {
                 champion_store::DQN_METADATA_FILE.to_string()
@@ -194,6 +200,7 @@ impl DqnTrainView {
             let meta = champion_store::DqnMetadata {
                 best_score: self.best_score,
                 episode: self.episode,
+                epsilon: self.game.agent.get_epsilon(),
             };
             let meta_path = if self.champion_path == DQN_CHAMPION_FILE {
                 champion_store::DQN_METADATA_FILE.to_string()
@@ -717,6 +724,7 @@ mod tests {
         let meta = champion_store::DqnMetadata {
             best_score: 20,
             episode: 50,
+            epsilon: 0.25,
         };
         champion_store::save_metadata(&meta_file, &meta).unwrap();
 
@@ -724,6 +732,8 @@ mod tests {
         let mut view = DqnTrainView::at_path(TEST_PERSIST_FILE);
         assert_eq!(view.best_score(), 20, "session must initialize best_score from metadata");
         assert_eq!(view.episode(), 50, "session must initialize episode from metadata");
+        assert_eq!(view.game.agent.get_epsilon(), 0.25, "session must initialize epsilon from metadata");
+        assert!(nets_approx_eq(&view.game.agent.q_network, &original_champion), "agent must load champion weights");
         assert!(view.champion().is_some());
 
         // Simulate an episode scoring 5 (below 20)
@@ -748,6 +758,48 @@ mod tests {
 
         // Cleanup
         std::fs::remove_file(TEST_PERSIST_FILE).ok();
+        std::fs::remove_file(&meta_file).ok();
+    }
+
+    #[test]
+    fn warm_start_initializes_agent_with_champion_and_fresh_agent_resets_it() {
+        const TEST_WARM_FILE: &str = "dqn_champion_warm_start_test.json";
+        let meta_file = format!("{TEST_WARM_FILE}.meta.json");
+
+        std::fs::remove_file(TEST_WARM_FILE).ok();
+        std::fs::remove_file(&meta_file).ok();
+
+        // 1. Without champion, starts with random weights and EPSILON_START
+        let view_fresh = DqnTrainView::at_path(TEST_WARM_FILE);
+        assert_eq!(view_fresh.game.agent.get_epsilon(), crate::dqn::EPSILON_START);
+        assert_eq!(view_fresh.best_score(), 0);
+
+        // 2. With saved champion and metadata, initializes agent with champion weights and saved epsilon
+        let champion = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
+        champion_store::save(TEST_WARM_FILE, &champion).unwrap();
+        let meta = champion_store::DqnMetadata {
+            best_score: 30,
+            episode: 100,
+            epsilon: 0.15,
+        };
+        champion_store::save_metadata(&meta_file, &meta).unwrap();
+
+        let mut view_warm = DqnTrainView::at_path(TEST_WARM_FILE);
+        assert_eq!(view_warm.best_score(), 30);
+        assert_eq!(view_warm.episode(), 100);
+        assert_eq!(view_warm.game.agent.get_epsilon(), 0.15);
+        assert!(nets_approx_eq(&view_warm.game.agent.q_network, &champion));
+        assert!(nets_approx_eq(&view_warm.game.agent.target_network, &champion));
+
+        // 3. fresh_agent() resets the agent to EPSILON_START and fresh random weights
+        view_warm.fresh_agent();
+        assert_eq!(view_warm.game.agent.get_epsilon(), crate::dqn::EPSILON_START);
+        assert_eq!(view_warm.best_score(), 0);
+        assert_eq!(view_warm.episode(), 0);
+        // Champion itself is retained as historical record
+        assert!(view_warm.champion().is_some());
+
+        std::fs::remove_file(TEST_WARM_FILE).ok();
         std::fs::remove_file(&meta_file).ok();
     }
 }
