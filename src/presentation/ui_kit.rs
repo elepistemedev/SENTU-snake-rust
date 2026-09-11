@@ -23,6 +23,7 @@ pub const ACCENT_CYAN: Color = Color::new(0.0, 0.90, 0.90, 1.0);
 pub const ACCENT_GOLD: Color = Color::new(1.0, 0.80, 0.20, 1.0);
 pub const ACCENT_GREEN: Color = Color::new(0.30, 0.90, 0.40, 1.0);
 pub const ACCENT_RED: Color = Color::new(0.95, 0.30, 0.30, 1.0);
+pub const ACCENT_AMBER: Color = Color::new(1.0, 0.72, 0.12, 1.0);
 pub const TEXT_MUTED: Color = Color::new(0.60, 0.65, 0.70, 1.0);
 
 #[inline]
@@ -61,10 +62,10 @@ pub fn brand_watermark_pos(screen_h: f32, line_idx: usize) -> (f32, f32) {
     (BRAND_WATERMARK_MARGIN_X, y)
 }
 
-/// Draw the brand ASCII watermark at the bottom-left corner of the screen.
+/// Draw the brand ASCII watermark at the bottom-left corner of the screen in amber.
 pub fn draw_brand_watermark() {
     let screen_h = screen_height();
-    let color = Color::new(ACCENT_CYAN.r, ACCENT_CYAN.g, ACCENT_CYAN.b, 0.80);
+    let color = Color::new(ACCENT_AMBER.r, ACCENT_AMBER.g, ACCENT_AMBER.b, 0.90);
     for (i, line) in BRAND_WATERMARK_LINES.iter().enumerate() {
         let (x, y) = brand_watermark_pos(screen_h, i);
         draw_text(line, x, y, BRAND_WATERMARK_FONT_SIZE, color);
@@ -119,6 +120,22 @@ pub fn calculate_chart_slot_width(total_w: f32, count: usize, max_cap: usize) ->
 pub fn draw_centered_text(text: &str, cx: f32, y: f32, font_size: f32, color: Color) {
     let dims = measure_text(text, None, font_size as u16, 1.0);
     draw_text(text, cx - dims.width * 0.5, y, font_size, color);
+}
+
+/// Helper to draw multi-segment colored text horizontally centered at (`cx`, `y`).
+pub fn draw_centered_segments(segments: &[(&str, Color)], cx: f32, y: f32, font_size: f32) {
+    let mut total_w = 0.0;
+    for (text, _) in segments {
+        let dims = measure_text(text, None, font_size as u16, 1.0);
+        total_w += dims.width;
+    }
+
+    let mut cur_x = cx - total_w * 0.5;
+    for (text, color) in segments {
+        draw_text(text, cur_x, y, font_size, *color);
+        let dims = measure_text(text, None, font_size as u16, 1.0);
+        cur_x += dims.width;
+    }
 }
 
 /// Format a terminal box title with brackets if not already bracketed.
@@ -181,6 +198,213 @@ pub fn draw_badge(text: &str, x: f32, y: f32, badge_color: Color) {
     draw_rectangle(x, y, badge_w, badge_h, bg);
     draw_rectangle_lines(x, y, badge_w, badge_h, 1.5, badge_color);
     draw_text(text, x + pad_x, y + 14.5, font_size, badge_color);
+}
+
+/// Draw a crisp micro-vector crown icon at (`x`, `y`) with dimensions `w` x `h`.
+pub fn draw_crown(x: f32, y: f32, w: f32, h: f32, color: Color) {
+    let base_h = 2.2;
+    let base_y = y + h - base_h;
+    // Lower base band
+    draw_rectangle(x + 1.0, base_y, w - 2.0, base_h, color);
+
+    // Three peaks
+    let peak_bottom_y = base_y;
+    // Middle peak
+    draw_triangle(
+        Vec2::new(x + w * 0.5, y),
+        Vec2::new(x + w * 0.28, peak_bottom_y),
+        Vec2::new(x + w * 0.72, peak_bottom_y),
+        color,
+    );
+    // Left peak
+    draw_triangle(
+        Vec2::new(x + 1.0, y + 2.0),
+        Vec2::new(x, peak_bottom_y),
+        Vec2::new(x + w * 0.35, peak_bottom_y),
+        color,
+    );
+    // Right peak
+    draw_triangle(
+        Vec2::new(x + w - 1.0, y + 2.0),
+        Vec2::new(x + w * 0.65, peak_bottom_y),
+        Vec2::new(x + w, peak_bottom_y),
+        color,
+    );
+
+    // Peak tips / jewels
+    draw_circle(x + 1.0, y + 1.5, 1.2, color);
+    draw_circle(x + w * 0.5, y - 0.5, 1.4, color);
+    draw_circle(x + w - 1.0, y + 1.5, 1.2, color);
+}
+
+/// Calculate the width of the champion badge for right-alignment.
+#[inline]
+pub fn champion_badge_width(ready: bool) -> f32 {
+    if ready {
+        // pad_x * 2 (16) + crown_w (16) + spacing (6) + text (106)
+        144.0
+    } else {
+        // pad_x * 2 (16) + text (140)
+        156.0
+    }
+}
+
+/// Draw a stylized champion badge:
+/// When `ready` is true: a golden micro-vector crown + "CHAMPION LISTO" in neon green with an emerald outline.
+/// When `ready` is false: "[REQUIERE CHAMPION]" in red.
+/// Returns the rendered badge width.
+pub fn draw_champion_badge(x: f32, y: f32, ready: bool) -> f32 {
+    let badge_w = champion_badge_width(ready);
+    let badge_h = 22.0;
+
+    if ready {
+        let font_size = 13.0;
+        let text = "CHAMPION LISTO";
+        let crown_w = 16.0;
+        let crown_h = 11.0;
+        let spacing = 6.0;
+        let pad_x = 8.0;
+
+        let bg = Color::new(0.02, 0.14, 0.06, 0.88);
+        draw_rectangle(x, y, badge_w, badge_h, bg);
+        draw_rectangle_lines(x, y, badge_w, badge_h, 1.5, ACCENT_GREEN);
+
+        // Draw gold crown
+        draw_crown(x + pad_x, y + (badge_h - crown_h) * 0.5, crown_w, crown_h, ACCENT_GOLD);
+
+        // Draw green text
+        draw_text(
+            text,
+            x + pad_x + crown_w + spacing,
+            y + 15.5,
+            font_size,
+            ACCENT_GREEN,
+        );
+        badge_w
+    } else {
+        let font_size = 13.0;
+        let text = "[REQUIERE CHAMPION]";
+        let pad_x = 8.0;
+        let bg = Color::new(0.18, 0.04, 0.04, 0.85);
+        draw_rectangle(x, y, badge_w, badge_h, bg);
+        draw_rectangle_lines(x, y, badge_w, badge_h, 1.5, ACCENT_RED);
+        draw_text(text, x + pad_x, y + 15.5, font_size, ACCENT_RED);
+        badge_w
+    }
+}
+
+/// Draw the glowing retro theme box at the top right of the menu header.
+pub fn draw_theme_badge_box(x: f32, y: f32, w: f32, h: f32, theme_name: &str) {
+    let bg = Color::new(0.03, 0.10, 0.14, 0.95);
+    draw_rectangle(x, y, w, h, bg);
+
+    // Glowing double border
+    draw_rectangle_lines(x, y, w, h, 2.0, ACCENT_CYAN);
+    draw_rectangle_lines(
+        x + 2.0,
+        y + 2.0,
+        w - 4.0,
+        h - 4.0,
+        1.0,
+        Color::new(0.0, 0.70, 0.75, 0.50),
+    );
+
+    // Corner accents
+    let corner = 5.0;
+    draw_line(x - 1.0, y, x + corner, y, 3.0, ACCENT_CYAN);
+    draw_line(x, y - 1.0, x, y + corner, 3.0, ACCENT_CYAN);
+    draw_line(x + w - corner, y, x + w + 1.0, y, 3.0, ACCENT_CYAN);
+    draw_line(x + w, y - 1.0, x + w, y + corner, 3.0, ACCENT_CYAN);
+    draw_line(x - 1.0, y + h, x + corner, y + h, 3.0, ACCENT_CYAN);
+    draw_line(x, y + h - corner, x, y + h + 1.0, 3.0, ACCENT_CYAN);
+    draw_line(x + w - corner, y + h, x + w + 1.0, y + h, 3.0, ACCENT_CYAN);
+    draw_line(x + w, y + h - corner, x + w, y + h + 1.0, 3.0, ACCENT_CYAN);
+
+    let text = format!("TEMA: {}", theme_name.to_uppercase());
+    let font_size = 15.0;
+    let dims = measure_text(&text, None, font_size as u16, 1.0);
+    draw_text(
+        &text,
+        x + (w - dims.width) * 0.5,
+        y + (h + font_size * 0.7) * 0.5,
+        font_size,
+        ACCENT_CYAN,
+    );
+}
+
+/// Draw a stylized cyber-terminal menu item card with bracketed corners and selection glow.
+pub fn draw_menu_card(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    index: usize,
+    label: &str,
+    is_selected: bool,
+) {
+    if is_selected {
+        // Deep teal glowing background
+        let bg = Color::new(0.05, 0.12, 0.16, 0.95);
+        draw_rectangle(x, y, w, h, bg);
+
+        // Outer glowing border: bright yellow-green / gold
+        let outer_color = Color::new(0.85, 0.95, 0.35, 1.0);
+        draw_rectangle_lines(x, y, w, h, 2.0, outer_color);
+
+        // Inner glowing border: cyan
+        draw_rectangle_lines(x + 2.0, y + 2.0, w - 4.0, h - 4.0, 1.0, ACCENT_CYAN);
+
+        // Corner bracket accents extending slightly
+        let corner = 8.0;
+        draw_line(x - 2.0, y, x + corner, y, 3.0, outer_color);
+        draw_line(x, y - 2.0, x, y + corner, 3.0, outer_color);
+        draw_line(x + w - corner, y, x + w + 2.0, y, 3.0, outer_color);
+        draw_line(x + w, y - 2.0, x + w, y + corner, 3.0, outer_color);
+        draw_line(x - 2.0, y + h, x + corner, y + h, 3.0, outer_color);
+        draw_line(x, y + h - corner, x, y + h + 2.0, 3.0, outer_color);
+        draw_line(x + w - corner, y + h, x + w + 2.0, y + h, 3.0, outer_color);
+        draw_line(x + w, y + h - corner, x + w, y + h + 2.0, 3.0, outer_color);
+
+        // Left selector arrow
+        draw_text("▶", x + 12.0, y + h * 0.5 + 6.0, 18.0, ACCENT_CYAN);
+
+        // Number indicator [ n ]
+        let num_str = format!("[ {} ]", index);
+        draw_text(&num_str, x + 34.0, y + h * 0.5 + 6.0, 18.0, ACCENT_CYAN);
+
+        // Label
+        draw_text(label, x + 94.0, y + h * 0.5 + 6.0, 19.0, ACCENT_GOLD);
+
+        // Right selector arrow
+        draw_text("◀", x + w - 24.0, y + h * 0.5 + 6.0, 18.0, ACCENT_CYAN);
+    } else {
+        // Unselected card
+        draw_rectangle(x, y, w, h, PANEL_BG);
+        draw_rectangle_lines(x, y, w, h, 1.5, PANEL_BORDER);
+
+        // Corner accents (notched retro terminal brackets)
+        let corner = 6.0;
+        draw_line(x - 1.0, y, x + corner, y, 2.5, PANEL_BORDER);
+        draw_line(x, y - 1.0, x, y + corner, 2.5, PANEL_BORDER);
+        draw_line(x + w - corner, y, x + w + 1.0, y, 2.5, PANEL_BORDER);
+        draw_line(x + w, y - 1.0, x + w, y + corner, 2.5, PANEL_BORDER);
+        draw_line(x - 1.0, y + h, x + corner, y + h, 2.5, PANEL_BORDER);
+        draw_line(x, y + h - corner, x, y + h + 1.0, 2.5, PANEL_BORDER);
+        draw_line(x + w - corner, y + h, x + w + 1.0, y + h, 2.5, PANEL_BORDER);
+        draw_line(x + w, y + h - corner, x + w, y + h + 1.0, 2.5, PANEL_BORDER);
+
+        // Subtle side notch tick marks in the middle of left and right border
+        let mid_y = y + h * 0.5;
+        draw_line(x - 2.0, mid_y, x + 2.0, mid_y, 2.0, PANEL_BORDER);
+        draw_line(x + w - 2.0, mid_y, x + w + 2.0, mid_y, 2.0, PANEL_BORDER);
+
+        // Number indicator [ n ]
+        let num_str = format!("[ {} ]", index);
+        draw_text(&num_str, x + 34.0, y + h * 0.5 + 6.0, 18.0, Color::new(0.50, 0.58, 0.68, 1.0));
+
+        // Label
+        draw_text(label, x + 94.0, y + h * 0.5 + 6.0, 19.0, Color::new(0.88, 0.90, 0.94, 1.0));
+    }
 }
 
 /// Draw a progress bar with border, fill fraction, and centered percentage.
@@ -366,7 +590,16 @@ mod tests {
         assert_eq!(ACCENT_GOLD, Color::new(1.0, 0.80, 0.20, 1.0));
         assert_eq!(ACCENT_GREEN, Color::new(0.30, 0.90, 0.40, 1.0));
         assert_eq!(ACCENT_RED, Color::new(0.95, 0.30, 0.30, 1.0));
+        assert_eq!(ACCENT_AMBER, Color::new(1.0, 0.72, 0.12, 1.0));
         assert_eq!(TEXT_MUTED, Color::new(0.60, 0.65, 0.70, 1.0));
+    }
+
+    #[test]
+    fn test_champion_badge_width_positive_and_consistent() {
+        let w_ready = champion_badge_width(true);
+        let w_not_ready = champion_badge_width(false);
+        assert!(w_ready > 50.0);
+        assert!(w_not_ready > 50.0);
     }
 
     #[test]
