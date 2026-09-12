@@ -1,39 +1,39 @@
 # Graph Report - SENTU-snake-rust-feature-dqn  (2026-09-11)
 
 ## Corpus Check
-- 64 files · ~79,977 words
+- 64 files · ~81,385 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 999 nodes · 1919 edges · 51 communities (36 shown, 15 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 48 edges (avg confidence: 0.85)
+- 1009 nodes · 1943 edges · 51 communities (36 shown, 15 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 53 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `19f8e710`
+- Built from commit: `c8fcbdef`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - GaTrainView
 - Game
-- SnakeCore
-- App
-- Net
-- ui_kit.rs
 - GameTheme
+- App
+- Simulation
+- GameDQN
+- ui_kit.rs
 - view_dqn_train.rs
 - versus.rs
 - VsFlavor
 - dqn.rs
-- champion_store.rs
 - Stream
 - view_cross_match.rs
 - Viz
-- view_dqn_versus.rs
+- Net
 - Deep Q-Network (DQN) Implementation
 - Apply Progress — unified-snake-shell (Slices 1–5 of 5)
 - Training dashboard UI Apply Progress Slice A
+- SnakeCore
 - env_config.rs
 - Archive Report — unified-snake-shell
 - Exploration: unified-snake-shell
@@ -71,7 +71,7 @@
 2. `Game` - 61 edges
 3. `Apply Progress — unified-snake-shell (Slices 1–5 of 5)` - 42 edges
 4. `App` - 33 edges
-5. `SnakeCore` - 28 edges
+5. `SnakeCore` - 29 edges
 6. `Simulation` - 27 edges
 7. `GameTheme` - 27 edges
 8. `DqnTrainView` - 27 edges
@@ -85,10 +85,10 @@
   src/domain/game.rs → src/domain/utils.rs
 - `relative_brain_body_distance_zero_when_no_body_present()` --calls--> `rotate_vision_to_relative()`  [INFERRED]
   src/domain/game.rs → src/domain/utils.rs
-- `nets_approx_eq()` --references--> `Net`  [EXTRACTED]
-  src/persistence/champion_store.rs → src/domain/nn.rs
 - `nets_eq()` --references--> `Net`  [EXTRACTED]
   src/presentation/views/view_cross_match.rs → src/domain/nn.rs
+- `nets_approx_eq()` --references--> `Net`  [EXTRACTED]
+  src/presentation/views/view_dqn_train.rs → src/domain/nn.rs
 
 ## Import Cycles
 - 2-file cycle: `src/domain/agent.rs -> src/domain/game.rs -> src/domain/agent.rs`
@@ -106,28 +106,28 @@ Nodes (9): SimMode, frame_tick_budget(), fresh_ga_train_view_defaults_to_the_adv
 Cohesion: 0.06
 Nodes (33): Clone, Ordering, PartialEq, PartialOrd, Send, Agent, Box<dyn Agent>, DqnPolicyAgent (+25 more)
 
-### Community 2 - "SnakeCore"
-Cohesion: 0.05
-Nodes (41): Into, dynamic_step_limit(), food_freshness_scales_from_one_to_zero(), get_four_dir_vision_returns_12_features(), get_random_empty_pos_avoids_body(), get_relative_state_returns_12_features(), is_snake_body_skips_head_segment(), is_wall_rejects_border_and_accepts_inner() (+33 more)
+### Community 2 - "GameTheme"
+Cohesion: 0.07
+Nodes (39): FourDirs, relative_dir(), relative_dir_matches_frame_for_all_12_combinations(), relative_dir_never_returns_backward(), relative_frame(), rotate_vision_drops_backward_group(), rotate_vision_identity_for_heading_top(), rotate_vision_to_relative() (+31 more)
 
 ### Community 3 - "App"
 Cohesion: 0.06
-Nodes (13): Conf, window_conf(), Action, App, app_menu_champion_helpers_dont_panic(), AppMode, match_view_slow_toggle(), MatchView (+5 more)
+Nodes (14): Conf, window_conf(), Action, App, app_menu_champion_helpers_dont_panic(), AppMode, match_view_slow_toggle(), MatchInner (+6 more)
 
-### Community 4 - "Net"
-Cohesion: 0.05
-Nodes (36): GaSeries, Layer, matches_arch_accepts_exact_and_rejects_others(), Net, new_delegates_to_new_with_sizes_with_ga_constants(), new_with_sizes_builds_predictable_net(), Self, Vec (+28 more)
-
-### Community 5 - "ui_kit.rs"
+### Community 4 - "Simulation"
 Cohesion: 0.06
-Nodes (48): Cow, Error, body_segments_stay_contiguous_and_ordered_after_eating(), episode_can_exceed_step_limit_if_eating(), episode_terminates_when_steps_without_food_exceeds_dynamic_limit(), game_dqn_with_network_preserves_agent_weights_and_epsilon(), GameDQN, observation_directional_food_sensor_detects_diagonal_food() (+40 more)
+Nodes (29): GaSeries, GaChampions, GenUpdate, load_ga_champions(), load_gen_history(), population_get_gen_summary_includes_max_steps(), Default, Option (+21 more)
 
-### Community 6 - "GameTheme"
-Cohesion: 0.10
-Nodes (20): GameTheme, load_theme(), load_theme_from_path(), Color, Option, P, Result, save_theme() (+12 more)
+### Community 5 - "GameDQN"
+Cohesion: 0.09
+Nodes (31): body_segments_stay_contiguous_and_ordered_after_eating(), episode_can_exceed_step_limit_if_eating(), food_respawns_and_episode_continues_when_steps_without_food_exceeds_dynamic_limit(), game_dqn_with_network_preserves_agent_weights_and_epsilon(), GameDQN, observation_directional_food_sensor_detects_diagonal_food(), observation_is_a_stable_9_input_relative_view_without_side_effects(), observation_places_forward_food_in_first_group_when_heading_top() (+23 more)
+
+### Community 6 - "ui_kit.rs"
+Cohesion: 0.08
+Nodes (31): Cow, Error, brand_watermark_pos(), calculate_chart_slot_width(), champion_badge_width(), clamp_fraction(), draw_brand_watermark(), draw_centered_segments() (+23 more)
 
 ### Community 7 - "view_dqn_train.rs"
-Cohesion: 0.09
+Cohesion: 0.10
 Nodes (23): bounded_ticks_advance_an_episode_and_reset_the_board(), cleanup_test_file(), construction_loads_dqn_arch_champion_and_rejects_old_arch(), dqn_frame_tick_budget(), dqn_render_target(), DqnRenderTarget, DqnTrainView, end_episode_records_one_history_entry_from_pre_reset_steps_and_score() (+15 more)
 
 ### Community 8 - "versus.rs"
@@ -142,10 +142,6 @@ Nodes (21): SeriesInfo, draw_centered_text(), arena_title_pos(), arena_title_pos
 Cohesion: 0.12
 Nodes (14): argmax_index(), dqn_agent_net_matches_arch_and_predicts_three_outputs(), dqn_agent_q_values_can_predict_negative_values(), dqn_agent_with_network_preserves_weights_and_epsilon(), DQNAgent, ema_update(), Experience, loss_ema_starts_at_zero_and_updates_after_first_train() (+6 more)
 
-### Community 11 - "champion_store.rs"
-Cohesion: 0.17
-Nodes (14): decode(), DqnMetadata, encode(), encode_decode_round_trip_preserves_net(), load(), load_metadata(), metadata_round_trip_and_missing(), nets_approx_eq() (+6 more)
-
 ### Community 12 - "Stream"
 Cohesion: 0.10
 Nodes (12): GenerationSummary, Population, Instant, Option, Self, Vec, Instant, Option (+4 more)
@@ -158,9 +154,9 @@ Nodes (21): CrossSeries, both_champions_missing_reports_both_sides(), both_champ
 Cohesion: 0.13
 Nodes (12): grid_to_world(), map_to_unit_interval(), are_colors_equal(), color_with_a(), Colors, Color, Default, Instant (+4 more)
 
-### Community 15 - "view_dqn_versus.rs"
-Cohesion: 0.12
-Nodes (20): DqnSeries, MatchInner, dqn_flavor(), dqn_flavor_has_expanded_arena_title(), DqnVersusInner, DqnVersusPlayers, DqnVersusView, nets_eq() (+12 more)
+### Community 15 - "Net"
+Cohesion: 0.06
+Nodes (40): DqnSeries, Layer, matches_arch_accepts_exact_and_rejects_others(), Net, new_delegates_to_new_with_sizes_with_ga_constants(), new_with_sizes_builds_predictable_net(), Self, Vec (+32 more)
 
 ### Community 16 - "Deep Q-Network (DQN) Implementation"
 Cohesion: 0.08
@@ -173,6 +169,10 @@ Nodes (42): Apply Progress — unified-snake-shell (Slices 1–5 of 5), Complete
 ### Community 18 - "Training dashboard UI Apply Progress Slice A"
 Cohesion: 0.10
 Nodes (21): DQN train view requirement, GA train view with DQN-style layout requirement, Training dashboard UI Apply Progress Slice A, D-1 Module placement dqn_dash.rs, D-2 Local drawing helper duplication, D-3 DQN render target dispatcher, D-7 Per-episode history ring buffer, D-8 GA train default flip to advanced dashboard (+13 more)
+
+### Community 19 - "SnakeCore"
+Cohesion: 0.10
+Nodes (17): Into, dynamic_step_limit(), food_freshness_scales_from_one_to_zero(), get_four_dir_vision_returns_12_features(), get_random_empty_pos_avoids_body(), get_relative_state_returns_12_features(), is_snake_body_skips_head_segment(), is_wall_rejects_border_and_accepts_inner() (+9 more)
 
 ### Community 20 - "env_config.rs"
 Cohesion: 0.12
@@ -246,17 +246,17 @@ Nodes (3): Unified snake shell sync report, Unified snake shell implementation t
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Net` connect `Net` to `GaTrainView`, `Game`, `ui_kit.rs`, `view_dqn_train.rs`, `versus.rs`, `dqn.rs`, `champion_store.rs`, `Stream`, `view_cross_match.rs`, `Viz`, `view_dqn_versus.rs`?**
-  _High betweenness centrality (0.224) - this node is a cross-community bridge._
-- **Why does `Game` connect `Game` to `SnakeCore`, `Net`, `GameTheme`, `versus.rs`, `VsFlavor`, `Stream`, `Viz`?**
-  _High betweenness centrality (0.135) - this node is a cross-community bridge._
-- **Why does `SnakeCore` connect `SnakeCore` to `Game`, `env_config.rs`, `ui_kit.rs`?**
-  _High betweenness centrality (0.069) - this node is a cross-community bridge._
+- **Why does `Net` connect `Net` to `GaTrainView`, `Game`, `Simulation`, `GameDQN`, `view_dqn_train.rs`, `versus.rs`, `dqn.rs`, `Stream`, `view_cross_match.rs`, `Viz`?**
+  _High betweenness centrality (0.216) - this node is a cross-community bridge._
+- **Why does `Game` connect `Game` to `GameTheme`, `Simulation`, `ui_kit.rs`, `versus.rs`, `VsFlavor`, `Stream`, `Viz`, `Net`, `SnakeCore`?**
+  _High betweenness centrality (0.176) - this node is a cross-community bridge._
+- **Why does `SnakeCore` connect `SnakeCore` to `Game`, `GameTheme`, `env_config.rs`, `GameDQN`?**
+  _High betweenness centrality (0.093) - this node is a cross-community bridge._
 - **What connects `snake`, `graphify`, `Workflow: graphify` to the rest of the system?**
   _179 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `GaTrainView` be split into smaller, more focused modules?**
   _Cohesion score 0.08712121212121213 - nodes in this community are weakly interconnected._
 - **Should `Game` be split into smaller, more focused modules?**
   _Cohesion score 0.06293706293706294 - nodes in this community are weakly interconnected._
-- **Should `SnakeCore` be split into smaller, more focused modules?**
-  _Cohesion score 0.05331510594668489 - nodes in this community are weakly interconnected._
+- **Should `GameTheme` be split into smaller, more focused modules?**
+  _Cohesion score 0.06666666666666667 - nodes in this community are weakly interconnected._
