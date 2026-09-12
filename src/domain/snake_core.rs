@@ -161,19 +161,26 @@ impl SnakeCore {
     /// GA-style raycast: `(wall_reciprocal, food_on_ray, body_reciprocal)` as `f32`.
     pub fn look_in_dir_ga(&self, st: Point, dir: (i32, i32)) -> (f32, bool, f32) {
         let mut food = false;
+        let mut body_dist = 0.0_f32;
         let mut temp_pt = Point::new(st.x + dir.0, st.y + dir.1);
         let mut dist = 1_usize;
 
-        loop {
-            if self.is_wall(temp_pt) { break; }
-            if self.food == temp_pt { food = true; }
-            if self.is_snake_body(temp_pt) { break; }
+        while !self.is_wall(temp_pt) {
+            if self.food == temp_pt {
+                food = true;
+            }
+            if self.is_snake_body(temp_pt) && body_dist == 0.0 {
+                body_dist = 1.0 / dist as f32;
+            }
             temp_pt = Point::new(temp_pt.x + dir.0, temp_pt.y + dir.1);
             dist += 1;
-            if dist > 1000 { break; }
+            if dist > 1000 {
+                break;
+            }
         }
 
-        (1.0 / dist as f32, food, 1.0 / dist as f32)
+        let wall_dist = 1.0 / dist as f32;
+        (wall_dist, food, body_dist)
     }
 
     // -------------------------------------------------------------------------
@@ -386,5 +393,25 @@ mod tests {
                 assert!(val.is_finite(), "prediction value must be finite, got {val}");
             }
         }
+    }
+
+    #[test]
+    fn look_in_dir_ga_separates_wall_and_body() {
+        let mut core = SnakeCore::new();
+        core.head = Point::new(10, 10);
+        // Wall to the left (x = 0) is 10 units away (wall_dist = 1.0 / 10.0)
+        // Put body segment at (8, 10), which is 2 units away (body_dist = 1.0 / 2.0)
+        core.body = vec![core.head, Point::new(8, 10)];
+        core.food = Point::new(20, 20);
+
+        let (wall, food, body) = core.look_in_dir_ga(core.head, (-1, 0));
+        assert_eq!(food, false);
+        assert!((wall - (1.0 / 10.0)).abs() < 1e-6, "wall should be 1/10, got {wall}");
+        assert!((body - (1.0 / 2.0)).abs() < 1e-6, "body should be 1/2, got {body}");
+
+        // Towards right (x = GRID_W): no body segment
+        let (wall_r, _food, body_r) = core.look_in_dir_ga(core.head, (1, 0));
+        assert_eq!(body_r, 0.0, "body distance must be 0.0 when no body present");
+        assert!(wall_r > 0.0);
     }
 }

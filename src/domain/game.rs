@@ -15,6 +15,8 @@ pub struct Game {
     pub is_complete: bool,
     /// Cumulative score from eaten food based on freshness at the time of eating.
     pub food_freshness_score: f32,
+    /// Consecutive apples allowed to rot without eating before starvation.
+    pub consecutive_decayed_apples: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +47,7 @@ impl Game {
             agent: Some(Box::new(GaAgent::new(brain))),
             is_complete: false,
             food_freshness_score: 0.0,
+            consecutive_decayed_apples: 0,
         }
     }
 
@@ -137,6 +140,12 @@ impl Game {
         Self::with_agent(Box::new(GaAgent::new(new_brain.clone())))
     }
 
+    /// Update the brain and synchronize the underlying agent decision maker.
+    pub fn set_brain(&mut self, new_brain: Net) {
+        self.brain = new_brain.clone();
+        self.agent = Some(Box::new(GaAgent::new(new_brain)));
+    }
+
     /// Build a game whose brain is a DQN relative-action net (9-input,
     /// 3-output): vision and actions are interpreted in the heading-relative
     /// frame. Used by the versus/cross arena for DQN players.
@@ -159,6 +168,7 @@ impl Game {
         let freshness = self.core.food_freshness();
         let apple_value = 400.0 + 600.0 * freshness;
         self.food_freshness_score += apple_value;
+        self.consecutive_decayed_apples = 0;
 
         self.core.swallow.push_eating();
         self.core.body.push(Point::new(self.core.head.x, self.core.head.y));
@@ -168,7 +178,12 @@ impl Game {
     fn handle_step_limit(&mut self) {
         let limit = self.core.hunger_limit();
         if self.core.steps_without_food >= limit {
-            self.core.respawn_food();
+            self.consecutive_decayed_apples += 1;
+            if self.consecutive_decayed_apples >= 3 {
+                self.is_complete = true;
+            } else {
+                self.core.respawn_food();
+            }
         }
     }
 
@@ -337,6 +352,29 @@ mod tests {
         game.handle_step_limit();
         assert!(!game.is_complete);
         assert_eq!(game.core.steps_without_food, 0);
+    }
+
+    #[test]
+    fn handle_step_limit_terminates_after_consecutive_decayed_apples() {
+        let mut game = Game::new();
+        assert_eq!(game.consecutive_decayed_apples, 0);
+
+        // 1st decay
+        game.core.steps_without_food = 100;
+        game.handle_step_limit();
+        assert!(!game.is_complete);
+        assert_eq!(game.consecutive_decayed_apples, 1);
+
+        // 2nd decay
+        game.core.steps_without_food = 100;
+        game.handle_step_limit();
+        assert!(!game.is_complete);
+        assert_eq!(game.consecutive_decayed_apples, 2);
+
+        // 3rd decay: must starve and terminate
+        game.core.steps_without_food = 100;
+        game.handle_step_limit();
+        assert!(game.is_complete, "Snake must starve after 3 consecutive decayed apples");
     }
 
     #[test]
