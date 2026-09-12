@@ -19,13 +19,26 @@
 //! `screen_height()` (no hardcoded 800×600 offsets). Toggling never perturbs
 //! the in-flight episode or session bookkeeping.
 
+use std::thread;
+use std::time::Duration;
+
 use macroquad::prelude::*;
 
 use crate::champion_store;
-use crate::configs::{GRID_H, GRID_W};
+use crate::configs::{GRID_H, GRID_W, SIM_SLEEP_MILLIS};
 use crate::dqn_dash::{self, EpisodeHistory};
 use crate::game_dqn::GameDQN;
 use crate::nn::Net;
+use crate::view_ga_train::MAX_FAST_TICKS_PER_FRAME;
+
+/// Number of DQN steps to run in one frame for a given pacing request.
+pub fn dqn_frame_tick_budget(slow_requested: bool) -> usize {
+    if slow_requested {
+        1
+    } else {
+        *MAX_FAST_TICKS_PER_FRAME
+    }
+}
 
 /// Where the DQN champion snapshot is persisted (serde `Net`, same format as
 /// `best_snake.json`). Missing or corrupt contents degrade to no champion.
@@ -89,13 +102,15 @@ pub struct DqnTrainView {
     /// Where the champion is loaded from/saved to. Defaults to
     /// [`DQN_CHAMPION_FILE`]; tests inject a private temp path.
     champion_path: &'static str,
+    /// User pacing request (`Space`): `true` = 1 step per frame + sleep.
+    slow: bool,
 }
 
 impl DqnTrainView {
     /// Start a fresh training session: a brand-new agent/board and zeroed
     /// bookkeeping, with any previously persisted champion loaded from
     /// `dqn_champion.json` (missing or corrupt file → no champion, never a
-    /// panic).
+    /// panic). Defaults to slow pacing (matching GA training default).
     pub fn new() -> Self {
         Self::at_path(DQN_CHAMPION_FILE)
     }
@@ -107,27 +122,66 @@ impl DqnTrainView {
         // Only a champion matching the current DQN architecture (9×32×3) is
         // accepted; a stale 12×8×4 file is discarded gracefully (no panic).
         let champion = champion_store::load(champion_path)
-        .filter(|net| net.matches_arch(&crate::dqn::DQN_ARCH));
+            .filter(|net| net.matches_arch(&crate::dqn::DQN_ARCH));
+        let meta_path = if champion_path == DQN_CHAMPION_FILE {
+            champion_store::DQN_METADATA_FILE.to_string()
+        } else {
+            format!("{champion_path}.meta.json")
+        };
+        let metadata = champion_store::load_metadata(&meta_path);
+        let (best_score, episode, epsilon) = if champion.is_some() {
+            if let Some(m) = metadata {
+                (m.best_score, m.episode, m.epsilon)
+            } else {
+                (1, 0, *crate::dqn::EPSILON_WARM_START)
+            }
+        } else {
+            (0, 0, *crate::dqn::EPSILON_START)
+        };
+        let game = if let Some(ref champ) = champion {
+            GameDQN::with_network(champ, epsilon)
+        } else {
+            GameDQN::new()
+        };
         Self {
-            game: GameDQN::new(),
-            episode: 0,
-            best_score: 0,
+            game,
+            episode,
+            best_score,
             champion,
             dashboard: true,
             history: EpisodeHistory::new(),
             champion_path,
+            slow: true,
         }
     }
 
-    /// Advance training one frame: exactly one `GameDQN::step()`. When the
-    /// episode ends, bookkeeping runs through [`on_episode_end`]; a record
-    /// replaces the in-memory champion and persists it via
-    /// `champion_store::save(…, champion)`, then the board resets.
+    /// Advance training one frame: either 1 step (+ sleep) if slow, or up to
+    /// [`MAX_FAST_TICKS_PER_FRAME`] steps if fast. When an episode ends,
+    /// bookkeeping runs through [`on_episode_end`]; a record replaces the
+    /// in-memory champion and persists it via `champion_store::save(…, champion)`,
+    /// then the board resets.
     pub fn tick(&mut self) {
-        let (_reward, done) = self.game.step();
-        if done {
-            self.end_episode();
+        let budget = dqn_frame_tick_budget(self.slow);
+        for _ in 0..budget {
+            let (_reward, done) = self.game.step();
+            if done {
+                self.end_episode();
+            }
         }
+        if self.slow {
+            thread::sleep(Duration::from_millis(*SIM_SLEEP_MILLIS));
+        }
+    }
+
+    /// User pacing request (slow = 1 step per frame + sleep).
+    pub fn is_slow(&self) -> bool {
+        self.slow
+    }
+
+    /// Set the pacing request (shell maps `Space` key-release to a toggle via
+    /// [`DqnTrainView::toggle_slow`]).
+    pub fn toggle_slow(&mut self) {
+        self.slow = !self.slow;
     }
 
     fn end_episode(&mut self) {
@@ -156,9 +210,39 @@ impl DqnTrainView {
                     self.champion_path
                 );
             }
+            let meta = champion_store::DqnMetadata {
+                best_score: self.best_score,
+                episode: self.episode,
+                epsilon: self.game.agent.get_epsilon(),
+            };
+            let meta_path = if self.champion_path == DQN_CHAMPION_FILE {
+                champion_store::DQN_METADATA_FILE.to_string()
+            } else {
+                format!("{}.meta.json", self.champion_path)
+            };
+            if let Err(e) = champion_store::save_metadata(&meta_path, &meta) {
+                eprintln!("warning: could not persist DQN metadata to {meta_path}: {e}");
+            }
         }
 
         self.game.reset();
+    }
+
+    /// Explicitly synchronize current metadata to disk on session exit/pause.
+    pub fn sync_save(&self) {
+        if self.champion.is_some() {
+            let meta = champion_store::DqnMetadata {
+                best_score: self.best_score,
+                episode: self.episode,
+                epsilon: self.game.agent.get_epsilon(),
+            };
+            let meta_path = if self.champion_path == DQN_CHAMPION_FILE {
+                champion_store::DQN_METADATA_FILE.to_string()
+            } else {
+                format!("{}.meta.json", self.champion_path)
+            };
+            let _ = champion_store::save_metadata(&meta_path, &meta);
+        }
     }
 
     /// Start a fresh agent: a new [`GameDQN`] (random q-network, epsilon 1.0,
@@ -239,6 +323,7 @@ impl DqnTrainView {
                 self.episode,
                 self.best_score,
                 &self.history,
+                self.slow,
                 theme,
             ),
             DqnRenderTarget::Hud => self.draw_hud(theme),
@@ -269,6 +354,28 @@ impl DqnTrainView {
             30.0,
             WHITE,
         );
+        let cur_limit = self.game.core.hunger_limit();
+        draw_text(
+            &format!("Steps: {} (Sin comer: {}/{})", self.game.steps, self.game.core.steps_without_food, cur_limit),
+            10.0,
+            155.0,
+            20.0,
+            WHITE,
+        );
+        draw_text(
+            &format!("Speed: {}", if self.slow { "Slow (1x)" } else { "Fast (50x)" }),
+            10.0,
+            185.0,
+            20.0,
+            WHITE,
+        );
+        draw_text(
+            "[SPACE] Slow/Fast  [TAB] Dashboard  [R] Reset  [ESC] Menu",
+            10.0,
+            220.0,
+            16.0,
+            crate::ui_kit::TEXT_MUTED,
+        );
 
         let (tile_size, offset_x, offset_y) = self.grid_layout();
 
@@ -281,6 +388,7 @@ impl DqnTrainView {
             tile_size,
             theme,
             colors.food,
+            self.game.core.food_freshness(),
         );
 
         // Snake
@@ -356,6 +464,11 @@ mod tests {
     const TEST_BOOKKEEPING_FILE: &str = "dqn_champion_bookkeeping_test.json";
     const TEST_ROUNDTRIP_FILE: &str = "dqn_champion_roundtrip_test.json";
     const TEST_OLD_ARCH_FILE: &str = "dqn_champion_old_arch_test.json";
+
+    fn cleanup_test_file(path: &str) {
+        std::fs::remove_file(path).ok();
+        std::fs::remove_file(format!("{path}.meta.json")).ok();
+    }
 
     /// `Net` has no `PartialEq`. Exact-weight comparison (valid for in-memory
     /// clones, which never pass through serialization).
@@ -449,16 +562,16 @@ mod tests {
 
     #[test]
     fn bounded_ticks_advance_an_episode_and_reset_the_board() {
-        // GameDQN's step limit is NUM_SIM_STEPS * 2 = 200 steps, and every
-        // episode must end within it (walls/self-collision end it earlier), so
-        // 250 ticks deterministically complete at least one episode.
+        // The base hunger step limit is 100 steps, and every episode must end within it
+        // (walls/self-collision end it earlier), so 250 ticks deterministically complete
+        // at least one episode.
         let mut view = test_view();
         for _ in 0..250 {
             view.tick();
         }
         assert!(
             view.episode() >= 1,
-            "after 250 ticks (>= the 200-step limit) at least one episode must end"
+            "after 250 ticks (>= the 100-step limit) at least one episode must end"
         );
         assert!(
             !view.game.is_complete,
@@ -470,7 +583,7 @@ mod tests {
         );
         // Episode bookkeeping advanced regardless of whether a record happened.
         let _ = view.episode();
-        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+        cleanup_test_file(TEST_BOOKKEEPING_FILE);
     }
 
     #[test]
@@ -519,7 +632,7 @@ mod tests {
             nets_eq(kept, &recorded),
             "a recorded champion is not a session artifact and must be retained"
         );
-        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+        cleanup_test_file(TEST_BOOKKEEPING_FILE);
     }
 
     #[test]
@@ -609,7 +722,7 @@ mod tests {
         );
         assert_eq!(view.episode(), 7, "toggling never resets the session");
         assert_eq!(view.best_score(), 11, "toggling never resets the session best");
-        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+        cleanup_test_file(TEST_BOOKKEEPING_FILE);
     }
 
     // --- Slice A: episode-end / fresh-agent history bookkeeping (spec) ---------
@@ -651,6 +764,113 @@ mod tests {
             view.champion().is_none(),
             "below-best episode never touches the champion"
         );
-        std::fs::remove_file(TEST_BOOKKEEPING_FILE).ok();
+        cleanup_test_file(TEST_BOOKKEEPING_FILE);
+    }
+
+    #[test]
+    fn existing_champion_and_metadata_persists_across_sessions_and_ignores_lower_scores() {
+        const TEST_PERSIST_FILE: &str = "dqn_champion_persist_test.json";
+        let meta_file = format!("{TEST_PERSIST_FILE}.meta.json");
+
+        // Clean any leftover
+        std::fs::remove_file(TEST_PERSIST_FILE).ok();
+        std::fs::remove_file(&meta_file).ok();
+
+        // Save initial champion with score 20, ep 50
+        let original_champion = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
+        champion_store::save(TEST_PERSIST_FILE, &original_champion).unwrap();
+        let meta = champion_store::DqnMetadata {
+            best_score: 20,
+            episode: 50,
+            epsilon: 0.25,
+        };
+        champion_store::save_metadata(&meta_file, &meta).unwrap();
+
+        // Open new session at that path
+        let mut view = DqnTrainView::at_path(TEST_PERSIST_FILE);
+        assert_eq!(view.best_score(), 20, "session must initialize best_score from metadata");
+        assert_eq!(view.episode(), 50, "session must initialize episode from metadata");
+        assert_eq!(view.game.agent.get_epsilon(), 0.25, "session must initialize epsilon from metadata");
+        assert!(nets_approx_eq(&view.game.agent.q_network, &original_champion), "agent must load champion weights");
+        assert!(view.champion().is_some());
+
+        // Simulate an episode scoring 5 (below 20)
+        view.game.score = 5;
+        view.game.steps = 30;
+        view.end_episode();
+
+        // Best score must NOT be reduced, and champion must NOT be replaced
+        assert_eq!(view.best_score(), 20);
+        let loaded_net = champion_store::load(TEST_PERSIST_FILE).unwrap();
+        assert!(nets_approx_eq(&loaded_net, &original_champion), "champion must not be replaced by lower score");
+
+        // Simulate an episode scoring 25 (beats 20)
+        view.game.score = 25;
+        view.game.steps = 100;
+        view.end_episode();
+
+        assert_eq!(view.best_score(), 25);
+        let loaded_meta = champion_store::load_metadata(&meta_file).unwrap();
+        assert_eq!(loaded_meta.best_score, 25);
+        assert_eq!(loaded_meta.episode, 52);
+
+        // Cleanup
+        std::fs::remove_file(TEST_PERSIST_FILE).ok();
+        std::fs::remove_file(&meta_file).ok();
+    }
+
+    #[test]
+    fn warm_start_initializes_agent_with_champion_and_fresh_agent_resets_it() {
+        const TEST_WARM_FILE: &str = "dqn_champion_warm_start_test.json";
+        let meta_file = format!("{TEST_WARM_FILE}.meta.json");
+
+        std::fs::remove_file(TEST_WARM_FILE).ok();
+        std::fs::remove_file(&meta_file).ok();
+
+        // 1. Without champion, starts with random weights and EPSILON_START
+        let view_fresh = DqnTrainView::at_path(TEST_WARM_FILE);
+        assert_eq!(view_fresh.game.agent.get_epsilon(), *crate::dqn::EPSILON_START);
+        assert_eq!(view_fresh.best_score(), 0);
+
+        // 2. With saved champion and metadata, initializes agent with champion weights and saved epsilon
+        let champion = Net::new_with_sizes(&crate::dqn::DQN_ARCH);
+        champion_store::save(TEST_WARM_FILE, &champion).unwrap();
+        let meta = champion_store::DqnMetadata {
+            best_score: 30,
+            episode: 100,
+            epsilon: 0.15,
+        };
+        champion_store::save_metadata(&meta_file, &meta).unwrap();
+
+        let mut view_warm = DqnTrainView::at_path(TEST_WARM_FILE);
+        assert_eq!(view_warm.best_score(), 30);
+        assert_eq!(view_warm.episode(), 100);
+        assert_eq!(view_warm.game.agent.get_epsilon(), 0.15);
+        assert!(nets_approx_eq(&view_warm.game.agent.q_network, &champion));
+        assert!(nets_approx_eq(&view_warm.game.agent.target_network, &champion));
+
+        // 3. fresh_agent() resets the agent to EPSILON_START and fresh random weights
+        view_warm.fresh_agent();
+        assert_eq!(view_warm.game.agent.get_epsilon(), *crate::dqn::EPSILON_START);
+        assert_eq!(view_warm.best_score(), 0);
+        assert_eq!(view_warm.episode(), 0);
+        // Champion itself is retained as historical record
+        assert!(view_warm.champion().is_some());
+
+        std::fs::remove_file(TEST_WARM_FILE).ok();
+        std::fs::remove_file(&meta_file).ok();
+    }
+
+    #[test]
+    fn speed_toggle_and_tick_budget() {
+        assert_eq!(dqn_frame_tick_budget(true), 1);
+        assert_eq!(dqn_frame_tick_budget(false), *MAX_FAST_TICKS_PER_FRAME);
+
+        let mut view = DqnTrainView::new();
+        assert!(view.is_slow());
+        view.toggle_slow();
+        assert!(!view.is_slow());
+        view.toggle_slow();
+        assert!(view.is_slow());
     }
 }

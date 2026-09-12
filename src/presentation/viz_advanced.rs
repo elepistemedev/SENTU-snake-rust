@@ -98,6 +98,10 @@ impl VizAdvanced {
         }
 
         // Right column: Stats + Charts
+        let (steps_without_food, hunger_limit) = games
+            .first()
+            .map(|g| (g.core.steps_without_food, g.core.hunger_limit()))
+            .unwrap_or((0, 100));
         self.draw_stats_panels(
             gen,
             max_score,
@@ -106,6 +110,8 @@ impl VizAdvanced {
             current_score,
             fitness,
             steps,
+            steps_without_food,
+            hunger_limit,
             screen_w,
             screen_h,
         );
@@ -171,6 +177,7 @@ impl VizAdvanced {
             tile_size,
             theme,
             colors.food,
+            best_game.core.food_freshness(),
         );
 
         // Draw all snakes (reverse order so best is on top)
@@ -300,7 +307,11 @@ impl VizAdvanced {
 
         for (i, &value) in final_output.iter().enumerate() {
             let y = output_start_y + i as f32 * output_spacing;
-            let intensity = (value as f32).clamp(0.0, 1.0);
+            let intensity = if value.is_finite() {
+                (value as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             let color = Color::new(intensity, intensity * 0.3, intensity * 0.9, 1.0);
 
             // Active argmax halo and border
@@ -336,6 +347,8 @@ impl VizAdvanced {
         current_score: usize,
         fitness: f32,
         steps: usize,
+        steps_without_food: usize,
+        hunger_limit: usize,
         screen_w: f32,
         screen_h: f32,
     ) {
@@ -348,7 +361,7 @@ impl VizAdvanced {
         }
 
         let stats_h = 160.0;
-        let run_h = 115.0;
+        let run_h = 135.0;
         let bar_h = 55.0;
         let fixed_total = 20.0 + stats_h + 15.0 + run_h + 15.0 + bar_h + 10.0 + bar_h + 20.0;
         let remaining_h = (screen_h - fixed_total - 20.0).max(120.0);
@@ -357,6 +370,9 @@ impl VizAdvanced {
         // 1. SIM STATS
         let mut y = 20.0;
         draw_terminal_box(panel_x, y, panel_w, stats_h, "SIM STATS", false);
+        if max_score > 0 {
+            draw_badge("GUARDADO", panel_x + panel_w - 95.0, y + 13.0, ACCENT_GREEN);
+        }
         let rows = [
             ("Generación:", format!("{}", gen)),
             ("Récord Histórico:", format!("{}", max_score)),
@@ -384,8 +400,9 @@ impl VizAdvanced {
             ("Puntuación:", format!("{}", current_score)),
             ("Fitness:", format!("{:.1}", fitness)),
             ("Pasos:", format!("{}", steps)),
+            ("Sin Comer:", format!("{}/{}", steps_without_food, hunger_limit)),
         ];
-        let mut run_row_y = y + 46.0;
+        let mut run_row_y = y + 42.0;
         for (lbl, val) in run_rows {
             draw_text(lbl, panel_x + 18.0, run_row_y, TEXT_SIZE, TEXT_MUTED);
             let val_dims = measure_text(&val, None, TEXT_SIZE as u16, 1.0);
@@ -396,13 +413,14 @@ impl VizAdvanced {
                 TEXT_SIZE,
                 TEXT_COLOR,
             );
-            run_row_y += 24.0;
+            run_row_y += 22.0;
         }
 
-        // 3. VIZ SCORE Bar (normalized over step limit)
+        // 3. VIZ SCORE Bar (normalized against session record or base target 20)
         y += run_h + 15.0;
-        let score_fraction = (current_score as f32 / NUM_SIM_STEPS as f32).clamp(0.0, 1.0);
-        let score_label = format!("Score: {} / {}", current_score, NUM_SIM_STEPS);
+        let target = (max_score.max(20)) as f32;
+        let score_fraction = (current_score as f32 / target).clamp(0.0, 1.0);
+        let score_label = format!("Score: {}", current_score);
         draw_progress_bar(
             panel_x,
             y,
@@ -415,8 +433,12 @@ impl VizAdvanced {
 
         // 4. MAX SCORE Bar
         y += bar_h + 10.0;
-        let max_fraction = (max_score as f32 / NUM_SIM_STEPS as f32).clamp(0.0, 1.0);
-        let max_label = format!("Récord: {} / {}", max_score, NUM_SIM_STEPS);
+        let max_fraction = if max_score > 0 {
+            (max_score as f32 / target).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let max_label = format!("Récord: {}", max_score);
         draw_progress_bar(
             panel_x,
             y,
@@ -480,14 +502,14 @@ impl VizAdvanced {
         let panel_w = screen_h - 320.0;
         let panel_h = 280.0;
 
-        draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "GA CONFIG", false);
+        draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "ALGORITMO GENÉTICO", false);
 
         let rows = [
-            ("Población Agentes:", format!("{}", NUM_GAMES_PER_STREAM)),
-            ("Límite de Pasos:", format!("{}", NUM_SIM_STEPS)),
+            ("Población Agentes:", format!("{}", *NUM_GAMES_PER_STREAM)),
+            ("Límite Hambre:", "100-800 (Dinámico)".to_string()),
             (
                 "Tasa Mutación:",
-                format!("{:.1}%", BRAIN_MUTATION_RATE * 100.0),
+                format!("{:.1}%", *BRAIN_MUTATION_RATE * 100.0),
             ),
             (
                 "Arquitectura:",
@@ -496,7 +518,7 @@ impl VizAdvanced {
                     INP_LAYER_SIZE, HIDDEN_LAYER_SIZE, OUTPUT_LAYER_SIZE
                 ),
             ),
-            ("Streams Simulación:", format!("{}", NUM_STREAMS)),
+            ("Streams Simulación:", format!("{}", *NUM_STREAMS)),
         ];
 
         let mut y = panel_y + 48.0;
@@ -531,6 +553,35 @@ impl VizAdvanced {
             draw_text(act, badge_x, ctrl_y + 14.0, 14.0, TEXT_COLOR);
             badge_x += measure_text(act, None, 14, 1.0).width + 10.0;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Free-standing rendering entry point (Fase 4)
+// ---------------------------------------------------------------------------
+
+/// Render the GA advanced training dashboard from a read-only [`SimSnapshot`].
+///
+/// Replaces `Simulation::draw_advanced` (which required macroquad inside the
+/// domain module). The caller (`GaTrainView`) owns `viz` and passes it here.
+pub fn draw_sim(
+    snap: &crate::sim::SimSnapshot<'_>,
+    viz: &VizAdvanced,
+    theme: crate::theme::GameTheme,
+) {
+    clear_background(crate::ui_kit::COLOR_BG);
+    if !snap.top_games.is_empty() {
+        viz.draw(
+            &snap.top_games,
+            snap.gen_count,
+            snap.best_ever,
+            snap.gen_max,
+            snap.elapsed_secs,
+            snap.champ_score,
+            snap.champ_fitness,
+            snap.champ_steps,
+            theme,
+        );
     }
 }
 

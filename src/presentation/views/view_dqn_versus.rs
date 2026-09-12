@@ -87,6 +87,7 @@ enum DqnVersusInner {
     /// player 2 is the fresh greedy fallback (for labeling).
     Series {
         series: DqnSeries,
+        flavor: VsFlavor,
         live_is_fresh: bool,
     },
 }
@@ -112,7 +113,8 @@ fn dqn_flavor(live_is_fresh: bool) -> VsFlavor {
             "Current eliminated!"
         },
         back_label: "[ESC] Menu",
-        controls_label: "[ESC] Menu",
+        controls_label: "[SPACE] Vel  [ESC] Menu",
+        arena_title: "DQN (VERSUS)",
     }
 }
 
@@ -129,10 +131,11 @@ impl DqnVersusView {
             DqnVersusPlayers::ChampionVsLive { champion, live } => {
                 let flavor = dqn_flavor(false);
                 let builder: Box<dyn FnMut() -> VersusMatch> =
-                    Box::new(move || VersusMatch::new_relative(champion.clone(), live.clone(), flavor));
+                    Box::new(move || VersusMatch::new_relative(champion.clone(), live.clone()));
                 Self {
                     inner: DqnVersusInner::Series {
                         series: BestOfSeries::new(builder),
+                        flavor,
                         live_is_fresh: false,
                     },
                 }
@@ -141,11 +144,12 @@ impl DqnVersusView {
                 let flavor = dqn_flavor(true);
                 let builder: Box<dyn FnMut() -> VersusMatch> = Box::new(move || {
                     let fresh_net = DQNAgent::new().q_network;
-                    VersusMatch::new_relative(champion.clone(), fresh_net, flavor)
+                    VersusMatch::new_relative(champion.clone(), fresh_net)
                 });
                 Self {
                     inner: DqnVersusInner::Series {
                         series: BestOfSeries::new(builder),
+                        flavor,
                         live_is_fresh: true,
                     },
                 }
@@ -179,6 +183,13 @@ impl DqnVersusView {
         }
     }
 
+    /// Reset the series for a rematch if in active series state.
+    pub fn restart(&mut self) {
+        if let DqnVersusInner::Series { series, .. } = &mut self.inner {
+            series.restart();
+        }
+    }
+
     /// True once the whole 5-game series has ended (message state is never
     /// finished).
     pub fn is_finished(&self) -> bool {
@@ -208,7 +219,9 @@ impl DqnVersusView {
                     "[ESC] Menu",
                 );
             }
-            DqnVersusInner::Series { series, .. } => series.draw(),
+            DqnVersusInner::Series { series, flavor, .. } => {
+                crate::viz_vs::VizVS::new().draw_series_match(series, flavor);
+            }
         }
     }
 }
@@ -335,5 +348,11 @@ mod tests {
         }
         assert!(view.is_finished());
         assert!(view.winner().is_some());
+    }
+
+    #[test]
+    fn dqn_flavor_has_expanded_arena_title() {
+        let flavor = dqn_flavor(false);
+        assert_eq!(flavor.arena_title, "DQN (VERSUS)");
     }
 }

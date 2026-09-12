@@ -18,10 +18,8 @@
 //! - [`output_intensity`] — clamps the sigmoid q-network output (already in
 //!   (0,1)) to the [0,1] domain the output-node color mapping consumes
 //!   (`draw_neural_network` colors each of the LEFT/RIGHT/BOTTOM/TOP nodes).
-//! - [`score_bar_fraction`] — the SCORE/BEST bars' fill fraction over the
-//!   documented DQN episode bound `FULL_BAR = (NUM_SIM_STEPS * 2) as f32`
-//!   (200.0 today; `score <= steps <= 200` in `GameDQN`), clamped to [0,1].
-//!   The GA reference's hardcoded `/20` denominator is NOT copied.
+//! - [`score_bar_fraction`] — the SCORE/BEST bars' fill fraction normalized
+//!   against the session best score or baseline target (20), clamped to [0,1].
 //! - `ema_update`/`argmax_index`/`loss_ema`/`target_updates` viven en
 //!   `crate::dqn` (testeadas); este módulo solo las consume.
 //!
@@ -29,10 +27,11 @@
 //! (`episode`, `best_score`) and `&EpisodeHistory` — no `DqnTrainView` crosses
 //! into this module (design D-3/D-4).
 
-use crate::configs::{GRID_H, GRID_W, NUM_SIM_STEPS};
+use crate::configs::{GRID_H, GRID_W};
 use crate::dqn::{
     argmax_index, BATCH_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_INP_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE,
-    EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE, REPLAY_BUFFER_SIZE,
+    EPSILON_DECAY, EPSILON_END, EPSILON_START, GAMMA, LEARNING_RATE,
+    REPLAY_BUFFER_SIZE,
 };
 use crate::game_dqn::GameDQN;
 use crate::ui_kit::{
@@ -115,16 +114,11 @@ pub fn output_intensity(value: f64) -> f64 {
     value.clamp(0.0, 1.0)
 }
 
-/// Pure SCORE/BEST bar fraction over the documented DQN episode bound (design
-/// §3): `FULL_BAR = (NUM_SIM_STEPS * 2) as f32` = 200.0 today — `GameDQN::step`
-/// forces `done` at `steps >= NUM_SIM_STEPS * 2` and every food eaten consumes a
-/// step, so `score <= steps <= 200`. Clamped to [0,1]; the GA reference's `/20`
-/// denominator is never used on the DQN dashboard. Consumed by
-/// [`crate::dqn_dash`]'s `draw_stats_panels` to size the "SCORE" and "BEST"
-/// bars.
-fn score_bar_fraction(score: usize) -> f32 {
-    let full_bar = (NUM_SIM_STEPS * 2) as f32;
-    (score as f32 / full_bar).clamp(0.0, 1.0)
+/// Pure SCORE/BEST bar fraction normalized against the session best score or baseline target (20).
+/// Clamped to [0,1].
+pub fn score_bar_fraction(score: usize, target: usize) -> f32 {
+    let full = (target.max(20)) as f32;
+    (score as f32 / full).clamp(0.0, 1.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +180,7 @@ fn draw_grid(game: &GameDQN, screen_h: f32, theme: crate::theme::GameTheme) {
         tile_size,
         theme,
         colors.food,
+        game.core.food_freshness(),
     );
 
     // The one live snake
@@ -314,13 +309,20 @@ fn draw_neural_network(game: &GameDQN, screen_h: f32) {
 
 /// Bottom-left model-info panel — retro-terminal panel displaying
 /// hyperparameters and structured keyboard shortcuts with badge frames.
-fn draw_model_info(_game: &GameDQN, screen_h: f32) {
+/// hyperparameters and structured keyboard shortcuts with badge frames.
+fn draw_model_info(_game: &GameDQN, screen_h: f32, slow: bool) {
     let panel_x = 20.0;
     let panel_y = screen_h - 300.0;
     let panel_w = screen_h - 320.0;
     let panel_h = 280.0;
 
     draw_terminal_box(panel_x, panel_y, panel_w, panel_h, "DQN TRAIN", false);
+    draw_badge(
+        if slow { "SLOW (1x)" } else { "FAST (50x)" },
+        panel_x + panel_w - 90.0,
+        panel_y + 12.0,
+        if slow { ACCENT_CYAN } else { ACCENT_GREEN },
+    );
 
     let mut y = panel_y + 48.0;
     draw_stat_row(
@@ -339,7 +341,7 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
         y,
         panel_w - 32.0,
         "Batch / Gamma:",
-        &format!("{} / {:.2}", BATCH_SIZE, GAMMA),
+        &format!("{} / {:.2}", *BATCH_SIZE, *GAMMA),
     );
     y += 24.0;
     draw_stat_row(
@@ -347,7 +349,7 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
         y,
         panel_w - 32.0,
         "Learning Rate:",
-        &format!("{}", LEARNING_RATE),
+        &format!("{}", *LEARNING_RATE),
     );
     y += 24.0;
     draw_stat_row(
@@ -355,15 +357,15 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
         y,
         panel_w - 32.0,
         "Epsilon Schedule:",
-        &format!("{:.2} -> {:.2} (x{:.3})", EPSILON_START, EPSILON_END, EPSILON_DECAY),
+        &format!("{:.2} -> {:.2} (x{:.3})", *EPSILON_START, *EPSILON_END, *EPSILON_DECAY),
     );
     y += 24.0;
     draw_stat_row(
         panel_x + 16.0,
         y,
         panel_w - 32.0,
-        "Step Limit:",
-        &format!("{}", NUM_SIM_STEPS * 2),
+        "Límite Hambre:",
+        "100-800 (Dinámico)",
     );
 
     // Separator before controls
@@ -380,6 +382,7 @@ fn draw_model_info(_game: &GameDQN, screen_h: f32) {
     draw_text("CONTROLS", panel_x + 16.0, panel_y + 204.0, 13.0, ACCENT_GOLD);
 
     let shortcuts = [
+        ("SPACE", "Vel"),
         ("TAB", "HUD"),
         ("R", "Nuevo Agente"),
         ("ESC", "Menú"),
@@ -431,6 +434,9 @@ fn draw_stats_panels(
     // TRAINING STATS
     let stats_y = 20.0;
     draw_terminal_box(panel_x, stats_y, panel_w, stats_h, "TRAINING STATS", false);
+    if best_score > 0 {
+        draw_badge("GUARDADO", panel_x + panel_w - 95.0, stats_y + 13.0, ACCENT_GREEN);
+    }
     let mut y = stats_y + 45.0;
     draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Episode:", &format!("{}", episode));
     y += 19.0;
@@ -438,7 +444,7 @@ fn draw_stats_panels(
     y += 19.0;
     draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Loss:", &format!("{:.5}", game.agent.loss_ema()));
     y += 19.0;
-    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Buffer:", &format!("{}/{}", game.agent.replay_buffer.len(), REPLAY_BUFFER_SIZE));
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Buffer:", &format!("{}/{}", game.agent.replay_buffer.len(), *REPLAY_BUFFER_SIZE));
     y += 19.0;
     draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Target Updates:", &format!("{}", game.agent.target_updates()));
     y += 19.0;
@@ -447,14 +453,23 @@ fn draw_stats_panels(
     // RUN STATS
     let run_y = stats_y + stats_h + 15.0;
     draw_terminal_box(panel_x, run_y, panel_w, run_h, "RUN STATS", false);
-    y = run_y + 48.0;
+    y = run_y + 36.0;
     draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Score:", &format!("{}", game.score));
-    y += 24.0;
-    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Steps:", &format!("{}", game.steps));
+    y += 20.0;
+    draw_stat_row(panel_x + 16.0, y, panel_w - 32.0, "Steps Totales:", &format!("{}", game.steps));
+    y += 20.0;
+    let step_limit = game.core.hunger_limit();
+    draw_stat_row(
+        panel_x + 16.0,
+        y,
+        panel_w - 32.0,
+        "Sin Comer:",
+        &format!("{}/{}", game.core.steps_without_food, step_limit),
+    );
 
     // SCORE progress bar
     let score_bar_y = run_y + run_h + 15.0;
-    let score_pct = score_bar_fraction(game.score);
+    let score_pct = score_bar_fraction(game.score, best_score);
     let score_label = format!("SCORE: {}", game.score);
     draw_progress_bar(
         panel_x,
@@ -468,7 +483,7 @@ fn draw_stats_panels(
 
     // BEST progress bar
     let best_bar_y = score_bar_y + bar_h + 10.0;
-    let best_pct = score_bar_fraction(best_score);
+    let best_pct = if best_score > 0 { score_bar_fraction(best_score, best_score) } else { 0.0 };
     let best_label = format!("BEST: {}", best_score);
     draw_progress_bar(
         panel_x,
@@ -523,9 +538,9 @@ fn draw_stats_panels(
 /// Dashboard entry point (design D-3/D-4): starts with `clear_background(COLOR_BG)`
 /// and draws the four panels in order — left grid + model info, center network, right
 /// stats/charts. Borrows only `&GameDQN`, the view's two scalars and the ring.
-pub fn draw(game: &GameDQN, episode: usize, best_score: usize, history: &EpisodeHistory) {
+pub fn draw(game: &GameDQN, episode: usize, best_score: usize, history: &EpisodeHistory, slow: bool) {
     let theme = crate::theme::load_theme();
-    draw_with_theme(game, episode, best_score, history, theme);
+    draw_with_theme(game, episode, best_score, history, slow, theme);
 }
 
 /// Variant of [`draw`] accepting an explicit [`GameTheme`].
@@ -534,13 +549,14 @@ pub fn draw_with_theme(
     episode: usize,
     best_score: usize,
     history: &EpisodeHistory,
+    slow: bool,
     theme: crate::theme::GameTheme,
 ) {
     let screen_w = screen_width();
     let screen_h = screen_height();
     clear_background(COLOR_BG);
     draw_grid(game, screen_h, theme);
-    draw_model_info(game, screen_h);
+    draw_model_info(game, screen_h, slow);
     draw_neural_network(game, screen_h);
     draw_stats_panels(game, episode, best_score, history, screen_w, screen_h);
 }
@@ -621,23 +637,12 @@ mod tests {
     // "score-bar fractions are clamped against the documented episode bound") ---
 
     #[test]
-    fn score_bar_fraction_clamps_against_the_documented_episode_bound() {
-        // Full bar = (NUM_SIM_STEPS * 2) as f32 = 200.0 with the current config:
-        // GameDQN forces done at steps >= NUM_SIM_STEPS * 2 and score grows only
-        // when food is eaten (each food also consumes a step), so
-        // score <= steps <= 200. Never the GA reference's /20 denominator.
-        let full_bar = (NUM_SIM_STEPS * 2) as f32;
-        assert_eq!(full_bar, 200.0, "documented episode bound is 200 steps");
-        assert_eq!(score_bar_fraction(0), 0.0);
-        assert_eq!(
-            score_bar_fraction(full_bar as usize),
-            1.0,
-            "a score equal to the bound fills the bar"
-        );
-        assert_eq!(
-            score_bar_fraction(full_bar as usize + 50),
-            1.0,
-            "scores above the bound clamp to 1.0"
-        );
+    fn score_bar_fraction_scales_against_target() {
+        assert_eq!(score_bar_fraction(0, 20), 0.0);
+        assert_eq!(score_bar_fraction(10, 20), 0.5);
+        assert_eq!(score_bar_fraction(20, 20), 1.0);
+        assert_eq!(score_bar_fraction(25, 20), 1.0, "scores above target clamp to 1.0");
+        // Minimum target baseline is 20
+        assert_eq!(score_bar_fraction(10, 5), 0.5);
     }
 }

@@ -23,12 +23,14 @@ use crate::view_dqn_train::DQN_CHAMPION_FILE;
 use crate::viz_vs::VsFlavor;
 
 /// Message shown when the GA side (`best_snake.json`) has no champion.
-pub const GA_MISSING_MESSAGE: &str = "GA champion missing - train GA first (needs best_snake.json)";
+pub const GA_MISSING_MESSAGE: &str =
+    "Falta el campeón del Algoritmo Genético - entrena primero (necesita best_snake.json)";
 /// Message shown when the DQN side (`dqn_champion.json`) has no champion.
 pub const DQN_MISSING_MESSAGE: &str =
-    "DQN champion missing - train DQN first (needs dqn_champion.json)";
+    "Falta el campeón DQN - entrena DQN primero (necesita dqn_champion.json)";
 /// Message shown when neither side has a champion.
-pub const BOTH_MISSING_MESSAGE: &str = "No champions yet - train GA and DQN first";
+pub const BOTH_MISSING_MESSAGE: &str =
+    "Faltan ambos campeones - entrena Algoritmo Genético y DQN primero";
 
 /// Which players were available for a cross match, and which side is missing.
 pub enum CrossMatchPlayers {
@@ -79,24 +81,25 @@ const GA_COLOR: Color = Color::new(0.3, 0.9, 0.3, 1.0);
 /// Accent color for player 2 (the DQN champion) — a distinct blue.
 const DQN_COLOR: Color = Color::new(0.35, 0.65, 0.95, 1.0);
 
-/// The cross flavor: "GA" (green, left) vs "DQN" (blue, right), no record
+/// The cross flavor: "ALGORITMO GENÉTICO" (green, left) vs "DQN" (blue, right), no record
 /// semantics, winner/back labels per spec.
 fn cross_flavor() -> VsFlavor {
     VsFlavor {
-        player1_title: "GA",
+        player1_title: "ALGORITMO GENÉTICO",
         player2_title: "DQN",
         player1_color: GA_COLOR,
         player2_color: DQN_COLOR,
         record: None,
         record_beat_label: "",
         new_record_label: "",
-        winner1_label: "GA WINS!",
-        winner2_label: "DQN WINS!",
-        tie_label: "TIE!",
-        eliminated1_label: "GA eliminated!",
-        eliminated2_label: "DQN eliminated!",
-        back_label: "[ESC] Menu",
-        controls_label: "[ESC] Menu",
+        winner1_label: "ALGORITMO GENÉTICO GANA!",
+        winner2_label: "DQN GANA!",
+        tie_label: "EMPATE!",
+        eliminated1_label: "Algoritmo Genético eliminado!",
+        eliminated2_label: "DQN eliminado!",
+        back_label: "[ESC] Menú",
+        controls_label: "[SPACE] Vel  [ESC] Menú",
+        arena_title: "DQN VS ALGORITMO GENÉTICO",
     }
 }
 
@@ -113,7 +116,10 @@ enum CrossInner {
     /// owns `Esc`.
     NeedsChampions { message: &'static str },
     /// A running/finished [`BestOfSeries`] between both champions.
-    Series(CrossSeries),
+    Series {
+        series: CrossSeries,
+        flavor: VsFlavor,
+    },
 }
 
 impl CrossMatchView {
@@ -127,21 +133,18 @@ impl CrossMatchView {
     }
 
     /// Same as [`CrossMatchView::new`] from explicit per-side champions.
-    /// Production loads them from disk; tests inject a deterministic set so the
-    /// real `best_snake.json`/`dqn_champion.json` files are never touched.
-    ///
-    /// The DQN champion is only accepted when it matches the current DQN
-    /// architecture (`DQN_ARCH`); a stale 12×8×4 champion is treated as missing
-    /// (discarded, no panic).
-    fn from_nets(ga: Option<Net>, dqn: Option<Net>) -> Self {
+    pub fn from_nets(ga: Option<Net>, dqn: Option<Net>) -> Self {
         let dqn = dqn.filter(|n| n.matches_arch(&crate::dqn::DQN_ARCH));
         let plan = plan_cross_match(ga, dqn);
         if let CrossMatchPlayers::Ready { ga, dqn } = plan {
             let flavor = cross_flavor();
             let builder: Box<dyn FnMut() -> VersusMatch> =
-                Box::new(move || VersusMatch::new_cross(ga.clone(), dqn.clone(), flavor));
+                Box::new(move || VersusMatch::new_cross(ga.clone(), dqn.clone()));
             return Self {
-                inner: CrossInner::Series(BestOfSeries::new(builder)),
+                inner: CrossInner::Series {
+                    series: BestOfSeries::new(builder),
+                    flavor,
+                },
             };
         }
         // A non-Ready plan is exactly "some side is missing", which always
@@ -159,15 +162,22 @@ impl CrossMatchView {
     pub fn message(&self) -> Option<&'static str> {
         match &self.inner {
             CrossInner::NeedsChampions { message } => Some(message),
-            CrossInner::Series(_) => None,
+            CrossInner::Series { .. } => None,
         }
     }
 
     /// Advance the series one tick. No-op in the message state and once the
     /// series is over.
     pub fn tick(&mut self) {
-        if let CrossInner::Series(series) = &mut self.inner {
+        if let CrossInner::Series { series, .. } = &mut self.inner {
             series.tick();
+        }
+    }
+
+    /// Reset the series for a rematch if in active series state.
+    pub fn restart(&mut self) {
+        if let CrossInner::Series { series, .. } = &mut self.inner {
+            series.restart();
         }
     }
 
@@ -176,7 +186,7 @@ impl CrossMatchView {
     pub fn is_finished(&self) -> bool {
         match &self.inner {
             CrossInner::NeedsChampions { .. } => false,
-            CrossInner::Series(series) => series.is_series_over(),
+            CrossInner::Series { series, .. } => series.is_series_over(),
         }
     }
 
@@ -185,7 +195,7 @@ impl CrossMatchView {
     pub fn winner(&self) -> Option<Winner> {
         match &self.inner {
             CrossInner::NeedsChampions { .. } => None,
-            CrossInner::Series(series) => series.series_winner(),
+            CrossInner::Series { series, .. } => series.series_winner(),
         }
     }
 
@@ -200,7 +210,9 @@ impl CrossMatchView {
                     "[ESC] Menu",
                 );
             }
-            CrossInner::Series(series) => series.draw(),
+            CrossInner::Series { series, flavor } => {
+                crate::viz_vs::VizVS::new().draw_series_match(series, flavor);
+            }
         }
     }
 }
@@ -208,7 +220,7 @@ impl CrossMatchView {
 #[cfg(test)]
 mod tests {
     use super::{
-        cross_missing_message, plan_cross_match, CrossMatchPlayers, CrossMatchView,
+        cross_flavor, cross_missing_message, plan_cross_match, CrossMatchPlayers, CrossMatchView,
         BOTH_MISSING_MESSAGE, DQN_MISSING_MESSAGE, GA_MISSING_MESSAGE,
     };
     use crate::nn::Net;
@@ -334,5 +346,11 @@ mod tests {
             Some(DQN_MISSING_MESSAGE),
             "old-arch DQN champion must be treated as missing"
         );
+    }
+
+    #[test]
+    fn cross_flavor_has_expanded_arena_title() {
+        let flavor = cross_flavor();
+        assert_eq!(flavor.arena_title, "DQN VS ALGORITMO GENÉTICO");
     }
 }

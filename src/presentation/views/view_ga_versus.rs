@@ -23,7 +23,8 @@ use crate::viz_vs::VsFlavor;
 
 /// Message shown when no best-ever GA champion exists anywhere (no
 /// `sim_metadata.json` best net and no `best_snake.json` fallback).
-pub const GA_CHAMPIONS_MISSING_MESSAGE: &str = "Train GA first to create champions";
+pub const GA_CHAMPIONS_MISSING_MESSAGE: &str =
+    "Entrena el Algoritmo Genético primero para crear campeones (necesita best_snake.json)";
 
 /// Pure decision of who plays a standalone GA match given the champions loaded
 /// off disk. The best-ever net is required; when the metadata carried no second
@@ -70,7 +71,10 @@ enum GaVersusInner {
     /// No champion: message state. The shell shows the message and owns `Esc`.
     NeedsChampions,
     /// A running/finished [`BestOfSeries`] between the loaded champions.
-    Series(GaSeries),
+    Series {
+        series: GaSeries,
+        flavor: VsFlavor,
+    },
 }
 
 impl GaVersusView {
@@ -82,10 +86,8 @@ impl GaVersusView {
         Self::from_champions(load_ga_champions())
     }
 
-    /// Same as [`GaVersusView::new`] from an explicit champion set. Production
-    /// uses disk-loaded champions; tests inject a deterministic set so the real
-    /// `sim_metadata.json`/`best_snake.json` files are never touched.
-    fn from_champions(champions: GaChampions) -> Self {
+    /// Same as [`GaVersusView::new`] from an explicit champion set.
+    pub fn from_champions(champions: GaChampions) -> Self {
         let record = champions.record;
         match plan_ga_versus(champions) {
             GaVersusPlayers::Missing => Self {
@@ -96,10 +98,13 @@ impl GaVersusView {
                 let builder: Box<dyn FnMut() -> VersusMatch> = {
                     let best = best;
                     let second_best = second_best;
-                    Box::new(move || VersusMatch::new(best.clone(), second_best.clone(), flavor))
+                    Box::new(move || VersusMatch::new(best.clone(), second_best.clone()))
                 };
                 Self {
-                    inner: GaVersusInner::Series(BestOfSeries::new(builder)),
+                    inner: GaVersusInner::Series {
+                        series: BestOfSeries::new(builder),
+                        flavor,
+                    },
                 }
             }
         }
@@ -111,15 +116,22 @@ impl GaVersusView {
     pub fn message(&self) -> Option<&'static str> {
         match &self.inner {
             GaVersusInner::NeedsChampions => Some(GA_CHAMPIONS_MISSING_MESSAGE),
-            GaVersusInner::Series(_) => None,
+            GaVersusInner::Series { .. } => None,
         }
     }
 
     /// Advance the series one tick. No-op in the message state and once the
     /// series is over.
     pub fn tick(&mut self) {
-        if let GaVersusInner::Series(series) = &mut self.inner {
+        if let GaVersusInner::Series { series, .. } = &mut self.inner {
             series.tick();
+        }
+    }
+
+    /// Reset the series for a rematch if in active series state.
+    pub fn restart(&mut self) {
+        if let GaVersusInner::Series { series, .. } = &mut self.inner {
+            series.restart();
         }
     }
 
@@ -128,7 +140,7 @@ impl GaVersusView {
     pub fn is_finished(&self) -> bool {
         match &self.inner {
             GaVersusInner::NeedsChampions => false,
-            GaVersusInner::Series(series) => series.is_series_over(),
+            GaVersusInner::Series { series, .. } => series.is_series_over(),
         }
     }
 
@@ -137,7 +149,7 @@ impl GaVersusView {
     pub fn winner(&self) -> Option<Winner> {
         match &self.inner {
             GaVersusInner::NeedsChampions => None,
-            GaVersusInner::Series(series) => series.series_winner(),
+            GaVersusInner::Series { series, .. } => series.series_winner(),
         }
     }
 
@@ -152,8 +164,8 @@ impl GaVersusView {
                     "[ESC] Menu",
                 );
             }
-            GaVersusInner::Series(series) => {
-                series.draw();
+            GaVersusInner::Series { series, flavor } => {
+                crate::viz_vs::VizVS::new().draw_series_match(series, flavor);
             }
         }
     }

@@ -88,6 +88,7 @@ config.local.*
 best_snake.json
 sim_metadata.json
 dqn_champion.json
+dqn_metadata.json
 theme_config.json
 
 # Subproyectos grandes (con su propio repo o artifacts entrenados)
@@ -111,3 +112,9 @@ ui/*.png
 # Local Pi runtime state
 .atl/
 .pi/
+
+# Graphify local cache and environment
+graphify-out/cache/
+graphify-out/.graphify_*
+graphify-out/202*
+
