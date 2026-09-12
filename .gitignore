@@ -99,9 +99,14 @@ damocles/
 models/
 src/trading/
 
-# Tooling
-.serena/memories/
-.serena/cache/
+# Tooling and AI Agents
+.agents/
+.serena/
+.Serena/
+docs/superpowers/
+graphify-out/
+openspec/
+.social_content/
 
 # Large artifacts
 *.pkl
@@ -112,7 +117,3 @@ ui/*.png
 # Local Pi runtime state
 .atl/
 .pi/
-
-# Graphify local cache and environment
-graphify-out/cache/
-graphify-out/.graphify_*
