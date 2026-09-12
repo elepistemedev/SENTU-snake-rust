@@ -48,10 +48,10 @@
     "semantic_hash": "fbebbb30a2865bb9f5b9f6848caa885c"
   },
   "README.md": {
-    "mtime": 1789112677.0954993,
-    "seen": 1789149536.051373,
-    "ast_hash": "34e703dd70a3c3c1115664a5a8c23f26",
-    "semantic_hash": "34e703dd70a3c3c1115664a5a8c23f26"
+    "mtime": 1789186894.8494647,
+    "seen": 1789186903.082459,
+    "ast_hash": "c29e2a7bc073ed19c3ad30478d451cb7",
+    "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-09-11-ui-ux-terminal-polish.md": {
     "mtime": 1789112677.0959036,
@@ -186,9 +186,9 @@
     "semantic_hash": ""
   },
   "src/domain/game.rs": {
-    "mtime": 1789157049.1015596,
-    "seen": 1789158946.747769,
-    "ast_hash": "9e6990cca7958df516c80e532461688e",
+    "mtime": 1789183199.0283794,
+    "seen": 1789183302.482681,
+    "ast_hash": "7fa87ef8bcde4bfe4019d687216383a6",
     "semantic_hash": ""
   },
   "src/domain/game_dqn.rs": {
@@ -210,27 +210,27 @@
     "semantic_hash": ""
   },
   "src/domain/pop.rs": {
-    "mtime": 1789151666.8324132,
-    "seen": 1789152605.9769962,
-    "ast_hash": "3bea842f6427342f585bdd6bc1248c35",
+    "mtime": 1789184283.8177905,
+    "seen": 1789184308.06124,
+    "ast_hash": "cbc6a093c8cf925f1002f01f689eeb7b",
     "semantic_hash": ""
   },
   "src/domain/sim.rs": {
-    "mtime": 1789145245.0499058,
-    "seen": 1789149696.456364,
-    "ast_hash": "85257fdbc9868ec1daaa5fd45a032ba1",
-    "semantic_hash": "85257fdbc9868ec1daaa5fd45a032ba1"
+    "mtime": 1789184273.2914994,
+    "seen": 1789184308.0612411,
+    "ast_hash": "1eb691c6cac330a897b1566c6b5d9af3",
+    "semantic_hash": ""
   },
   "src/domain/snake_core.rs": {
-    "mtime": 1789158902.888149,
-    "seen": 1789158946.747772,
-    "ast_hash": "981535a12a0f70c155424dbed222f777",
+    "mtime": 1789183175.7255704,
+    "seen": 1789183302.482684,
+    "ast_hash": "bbdeddad9198236cc9f124d50b9b814a",
     "semantic_hash": ""
   },
   "src/domain/stream.rs": {
-    "mtime": 1789151633.2318773,
-    "seen": 1789152605.9769979,
-    "ast_hash": "ec230ff43bf035dec3f1a7d9edaba4e2",
+    "mtime": 1789184280.8177009,
+    "seen": 1789184308.061242,
+    "ast_hash": "0e536f41b95ace639e03697884013956",
     "semantic_hash": ""
   },
   "src/domain/swallow.rs": {

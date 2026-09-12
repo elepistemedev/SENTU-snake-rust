@@ -27,16 +27,19 @@ pub struct GenerationSummary {
 
 impl Population {
     pub fn new() -> Self {
+        let saved_net = Self::load_best_net();
+        Self::with_champion(saved_net)
+    }
+
+    pub fn with_champion(champion: Option<Net>) -> Self {
         let mut streams = Vec::new();
 
-        // Try to load saved model
-        let saved_net = Self::load_best_net();
-
         for _ in 0..*NUM_STREAMS {
-            let mut stream = Stream::new();
-            if let Some(ref net) = saved_net {
-                stream.inject_net(net.clone());
-            }
+            let stream = if let Some(ref net) = champion {
+                Stream::with_champion(net)
+            } else {
+                Stream::new()
+            };
             streams.push(stream);
         }
 
@@ -57,11 +60,15 @@ impl Population {
     }
 
     pub fn reset(&mut self) {
+        self.reset_with_champion(None);
+    }
+
+    pub fn reset_with_champion(&mut self, champion: Option<&Net>) {
         self.gen_start_ts = Instant::now();
         let mut nets: Vec<Net> = Vec::new();
 
         for stream in self.streams.iter_mut() {
-            nets.push(stream.reset());
+            nets.push(stream.reset_with_champion(champion));
         }
 
         // Rejuvenecimiento de Islas
@@ -102,14 +109,16 @@ impl Population {
 
     pub fn get_best_game(&self) -> Option<&crate::game::Game> {
         let mut best_game: Option<&crate::game::Game> = None;
-        let mut best_score = 0;
 
         for stream in self.streams.iter() {
             if let Some(game) = stream.get_best_game() {
-                let score = game.score();
-                if score > best_score {
-                    best_score = score;
-                    best_game = Some(game);
+                match best_game {
+                    None => best_game = Some(game),
+                    Some(current) => {
+                        if crate::stream::is_better_game(game, current) {
+                            best_game = Some(game);
+                        }
+                    }
                 }
             }
         }
@@ -124,29 +133,81 @@ impl Population {
             all_games.extend(stream.get_all_games());
         }
 
-        all_games.sort_by(|a, b| b.score().cmp(&a.score()));
+        all_games.sort_by(|a, b| {
+            let a_alive = !a.is_complete;
+            let b_alive = !b.is_complete;
+            b_alive.cmp(&a_alive)
+                .then_with(|| b.score().cmp(&a.score()))
+                .then_with(|| b.fitness().partial_cmp(&a.fitness()).unwrap_or(std::cmp::Ordering::Equal))
+        });
         all_games.truncate(count);
         all_games
     }
 
-    pub fn save_best_net(&self) {
-        if let Some(best_game) = self.get_best_game() {
-            let net = best_game.get_net();
-            let json = serde_json::to_string_pretty(&net).unwrap();
+    pub fn save_net(net: &Net) {
+        if let Ok(json) = serde_json::to_string_pretty(net) {
             fs::write("best_snake.json", json).ok();
         }
     }
 
+    pub fn save_best_net(&self) {
+        if let Some(best_game) = self.get_best_game() {
+            Self::save_net(best_game.get_net());
+        }
+    }
+
     /// Load the best net saved by a previous run from `best_snake.json`
-    /// (missing or corrupt → `None`, never a panic). Public so the standalone
-    /// GA-versus and cross-match views can build a champion arena without a
-    /// running `Simulation`.
+    /// with fallback to `sim_metadata.json` (missing or corrupt → `None`, never a panic).
+    /// Public so the standalone GA-versus and cross-match views can build a champion
+    /// arena without a running `Simulation`.
     pub fn load_best_net() -> Option<Net> {
         if Path::new("best_snake.json").exists() {
-            let json = fs::read_to_string("best_snake.json").ok()?;
-            serde_json::from_str(&json).ok()
-        } else {
-            None
+            if let Ok(json) = fs::read_to_string("best_snake.json") {
+                if let Ok(net) = serde_json::from_str(&json) {
+                    return Some(net);
+                }
+            }
+        }
+        if Path::new("sim_metadata.json").exists() {
+            if let Ok(json) = fs::read_to_string("sim_metadata.json") {
+                #[derive(serde::Deserialize)]
+                struct MetaFallback {
+                    best_net: Option<Net>,
+                }
+                if let Ok(meta) = serde_json::from_str::<MetaFallback>(&json) {
+                    if meta.best_net.is_some() {
+                        return meta.best_net;
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn population_with_champion_initializes_streams_with_champion() {
+        let champion = Net::new();
+        let pop = Population::with_champion(Some(champion.clone()));
+        let best_game = pop.get_best_game().expect("must have best game");
+        let best_net = best_game.get_net();
+        assert_eq!(best_net.n_inputs(), champion.n_inputs());
+        assert_eq!(best_net.layers.len(), champion.layers.len());
+    }
+
+    #[test]
+    fn population_get_top_games_prioritizes_alive_snakes() {
+        let pop = Population::new();
+        let top = pop.get_top_games(5);
+        assert!(!top.is_empty());
+        // Fresh population: all snakes alive
+        for g in top {
+            assert!(!g.is_complete);
         }
     }
 }
+

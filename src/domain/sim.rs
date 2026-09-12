@@ -123,17 +123,19 @@ impl Default for Simulation {
 impl Simulation {
     pub fn new() -> Self {
         let metadata = Self::load_metadata();
+        let best_net_ever = metadata.best_net.or_else(Population::load_best_net);
+        let second_best_net_ever = metadata.second_best_net;
 
         Self {
             gen_count: metadata.gen_count,
-            pop: Population::new(),
+            pop: Population::with_champion(best_net_ever.clone()),
             max_score_ever: metadata.max_score_ever,
             second_max_score_ever: metadata.second_max_score_ever,
             mode: SimMode::Training,
             vs_game1: None,
             vs_game2: None,
-            best_net_ever: metadata.best_net,
-            second_best_net_ever: metadata.second_best_net,
+            best_net_ever,
+            second_best_net_ever,
             pending_gen_time: None,
             pending_gen_score: None,
         }
@@ -159,16 +161,15 @@ impl Simulation {
     }
 
     pub fn save_metadata(&self) {
+        let existing = Self::load_metadata();
         let metadata = SimMetadata {
             gen_count: self.gen_count,
             max_score_ever: self.max_score_ever,
             second_max_score_ever: self.second_max_score_ever,
             best_net: self.best_net_ever.clone(),
             second_best_net: self.second_best_net_ever.clone(),
-            // History is owned by the presentation layer; save an empty vec
-            // here — a full save is done when GaTrainView calls save_metadata_with_history.
-            gen_times: Vec::new(),
-            gen_scores: Vec::new(),
+            gen_times: existing.gen_times,
+            gen_scores: existing.gen_scores,
         };
         if let Ok(json) = serde_json::to_string_pretty(&metadata) {
             fs::write("sim_metadata.json", json).ok();
@@ -315,7 +316,7 @@ impl Simulation {
 
     pub fn start_new_generation(&mut self) {
         self.gen_count += 1;
-        self.pop.reset();
+        self.pop.reset_with_champion(self.best_net_ever.as_ref());
     }
 
     pub fn end_current_genration(&mut self) {
@@ -328,7 +329,9 @@ impl Simulation {
             self.second_max_score_ever = self.max_score_ever;
             self.best_net_ever = stats.best_net.clone();
             self.max_score_ever = current_score;
-            self.pop.save_best_net();
+            if let Some(ref net) = self.best_net_ever {
+                Population::save_net(net);
+            }
             self.save_metadata();
         } else if current_score > self.second_max_score_ever && current_score > 0 {
             // New second best
@@ -343,7 +346,9 @@ impl Simulation {
 
         // Periodic checkpoint every 10 generations even if record wasn't broken
         if self.gen_count.is_multiple_of(10) {
-            self.pop.save_best_net();
+            if let Some(ref net) = self.best_net_ever {
+                Population::save_net(net);
+            }
             self.save_metadata();
         }
     }
@@ -398,4 +403,14 @@ mod tests {
         assert!(summary.max_score >= 1, "initial snake length is 1");
         assert_eq!(summary.max_steps, 0, "fresh population has not stepped");
     }
+
+    #[test]
+    fn simulation_snapshot_provides_valid_best_game() {
+        let sim = Simulation::new();
+        let snap = sim.snapshot();
+        assert!(snap.best_game.is_some());
+        assert!(!snap.top_games.is_empty());
+        assert_eq!(snap.top_games[0].score(), snap.champ_score);
+    }
 }
+
