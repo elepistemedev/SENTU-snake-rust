@@ -113,7 +113,6 @@ openspec/
 *.pt
 *.pth
 *.onnx
-ui/*.png
 # Local Pi runtime state
 .atl/
 .pi/
