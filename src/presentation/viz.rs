@@ -8,6 +8,7 @@ use std::time::Instant;
 use crate::game::Game;
 use crate::nn::Net;
 use crate::pop::GenerationSummary;
+use crate::ui_kit::{are_colors_equal, color_with_a};
 use crate::*;
 
 pub struct Viz {

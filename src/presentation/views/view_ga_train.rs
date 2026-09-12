@@ -8,7 +8,7 @@
 //!   forces slow mode, exactly as the driver forced slow while
 //!   `sim.is_vs_mode()` was true.
 //! * Rendering: default is the pre-existing `VizAdvanced` dashboard via
-//!   [`Simulation::draw_advanced`] — byte-identical to the original `main`
+//!   [`crate::viz_advanced::draw_sim`] — byte-identical to the original `main`
 //!   app's viz mode. `Tab` (via [`GaTrainView::toggle_advanced`]) toggles to
 //!   the compact DQN-style HUD (current best snake grid + text HUD), and `Tab`
 //!   again returns to the dashboard.
@@ -22,18 +22,22 @@
 //! [`GaTrainView::trigger_vs`]; `Esc`-to-menu is shell-owned, so this view never
 //! polls keys itself.
 
+use std::sync::LazyLock;
 use std::thread;
 use std::time::Duration;
 
 use macroquad::prelude::*;
 
 use crate::configs::{GRID_H, GRID_W, SIM_SLEEP_MILLIS};
+use crate::env_config::env_usize;
 use crate::sim::{SimMode, Simulation};
+use crate::viz_advanced::VizAdvanced;
 use crate::viz_vs::{VizVS, VsFlavor};
+
 
 /// Fast-mode batching cap, matching the legacy GA driver: at most this many sim
 /// ticks per frame.
-pub const MAX_FAST_TICKS_PER_FRAME: usize = 50;
+pub static MAX_FAST_TICKS_PER_FRAME: LazyLock<usize> = LazyLock::new(|| env_usize("MAX_FAST_TICKS_PER_FRAME", 50));
 
 /// Number of sim ticks to run in one shell frame for a given pacing request and
 /// VS-sub-state. Pure pacing seam: slow mode steps exactly one batch per frame;
@@ -44,7 +48,7 @@ pub fn frame_tick_budget(slow_requested: bool, vs_active: bool) -> usize {
     if slow_requested || vs_active {
         1
     } else {
-        MAX_FAST_TICKS_PER_FRAME
+        *MAX_FAST_TICKS_PER_FRAME
     }
 }
 
@@ -76,8 +80,14 @@ pub fn render_target(advanced_enabled: bool, mode: SimMode) -> GaRenderTarget {
 /// The sim is resumed naturally: like today's `Simulation::new()`, leaving and
 /// re-entering GA train simply reloads `sim_metadata.json`/`best_snake.json`, so
 /// no pause/resume bookkeeping lives here (AD-3).
+///
+/// `viz` is owned here (presentation layer) rather than inside `Simulation`
+/// (domain layer). It is initialized with the generation history from
+/// `sim_metadata.json` so charts survive session restarts.
 pub struct GaTrainView {
     sim: Simulation,
+    /// VizAdvanced dashboard, owned by the presentation layer (Fase 4).
+    viz: VizAdvanced,
     /// User pacing request (`Space`): `true` = one batch per frame + sleep.
     slow: bool,
     /// Advanced `VizAdvanced` dashboard toggle (`Tab`). Default on = the
@@ -90,8 +100,12 @@ impl GaTrainView {
     /// the advanced `VizAdvanced` dashboard (design D-8: `Tab` toggles to the
     /// compact DQN-style HUD).
     pub fn new() -> Self {
+        let (gen_times, gen_scores) = crate::sim::load_gen_history();
+        let mut viz = VizAdvanced::new();
+        viz.set_history(gen_times, gen_scores);
         Self {
             sim: Simulation::new(),
+            viz,
             slow: true,
             advanced: true,
         }
@@ -102,6 +116,9 @@ impl GaTrainView {
     /// batch of up to [`MAX_FAST_TICKS_PER_FRAME`] when fast. Training and VS
     /// ticks are selected per-iteration from the sim's live mode, so an auto-VS
     /// that begins mid-batch behaves exactly like the legacy driver.
+    ///
+    /// Also drains any pending `GenUpdate` events from the sim and feeds them
+    /// into the owned `VizAdvanced` so chart history stays current.
     pub fn tick(&mut self) {
         let budget = frame_tick_budget(self.slow, self.sim.is_vs_mode());
         for _ in 0..budget {
@@ -109,9 +126,13 @@ impl GaTrainView {
                 SimMode::Training => self.sim.tick_training(),
                 SimMode::VS => self.sim.tick_vs(),
             }
+            // Drain generation-end events and feed into viz history
+            if let Some(update) = self.sim.take_gen_update() {
+                self.viz.update_generation(update.time_secs, update.score);
+            }
         }
         if budget == 1 {
-            thread::sleep(Duration::from_millis(SIM_SLEEP_MILLIS));
+            thread::sleep(Duration::from_millis(*SIM_SLEEP_MILLIS));
         }
     }
 
@@ -172,16 +193,18 @@ impl GaTrainView {
         self.sim.best_net_ever().cloned().or_else(crate::pop::Population::load_best_net)
     }
 
-    /// Explicitly synchronize current metadata to disk on session exit/pause.
+    /// Explicitly synchronize current metadata (including chart history) to disk
+    /// on session exit/pause.
     pub fn sync_save(&self) {
-        self.sim.save_metadata();
+        let (gen_times, gen_scores) = self.viz.get_history();
+        self.sim.save_metadata_with_history(gen_times, gen_scores);
     }
 
     /// Draw the frame selected by [`render_target`].
     pub fn draw(&self, theme: crate::theme::GameTheme) {
         match render_target(self.advanced, self.sim.mode()) {
             GaRenderTarget::Versus => self.draw_versus(),
-            GaRenderTarget::Advanced => self.sim.draw_advanced(theme),
+            GaRenderTarget::Advanced => crate::viz_advanced::draw_sim(&self.sim.snapshot(), &self.viz, theme),
             GaRenderTarget::Hud => self.draw_dqn_style(theme),
         }
     }
@@ -272,6 +295,7 @@ impl GaTrainView {
                 tile_size,
                 theme,
                 colors.food,
+                best_game.core.food_freshness(),
             );
 
             // Snake
@@ -342,7 +366,7 @@ impl GaTrainView {
 
 #[cfg(test)]
 mod tests {
-    use super::{frame_tick_budget, render_target, GaRenderTarget, GaTrainView};
+    use super::{frame_tick_budget, render_target, GaRenderTarget, GaTrainView, MAX_FAST_TICKS_PER_FRAME};
     use crate::sim::SimMode;
 
     // --- frame_tick_budget: pacing pure seam -----------------------------------
@@ -362,7 +386,7 @@ mod tests {
 
     #[test]
     fn fast_training_batches_up_to_fifty_ticks_per_frame() {
-        assert_eq!(frame_tick_budget(false, false), 50);
+        assert_eq!(frame_tick_budget(false, false), *MAX_FAST_TICKS_PER_FRAME);
     }
 
     // --- render_target: which renderer draws, given mode + advanced toggle -----

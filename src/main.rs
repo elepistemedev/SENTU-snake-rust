@@ -3,11 +3,11 @@
 //! Replaces both former binaries (`snake` = GA driver, `snake-dqn` = DQN driver)
 //! with one macroquad loop that owns the whole app lifecycle: a welcome menu plus
 //! the five playable views (DQN train, DQN versus, GA train, GA versus, DQN vs
-//! GA). All lifecycle and state-machine logic lives in [`snake::app::App`]; this
+//! GA). All lifecycle and state-machine logic lives in [`snake::presentation::app::App`]; this
 //! file only opens the window (fullscreen, as the GA binary was — AD-8) and pumps
 //! frames until the user quits from the menu (`Esc`).
 
-use snake::app::App;
+use snake::presentation::app::App;
 
 fn window_conf() -> macroquad::window::Conf {
     macroquad::window::Conf {
@@ -21,7 +21,8 @@ fn window_conf() -> macroquad::window::Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    if let Err(e) = snake::ui_kit::init_default_font() {
+    snake::domain::env_config::init();
+    if let Err(e) = snake::presentation::ui_kit::init_default_font() {
         eprintln!("[WARN] Failed to initialize embedded font: {:?}", e);
     }
     let mut app = App::new();
@@ -32,4 +33,3 @@ async fn main() {
         macroquad::prelude::next_frame().await;
     }
 }
-

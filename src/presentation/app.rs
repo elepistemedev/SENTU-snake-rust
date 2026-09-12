@@ -26,9 +26,10 @@ use macroquad::prelude::*;
 
 use crate::champion_store;
 use crate::ui_kit::{
-    draw_badge, draw_brand_watermark, draw_centered_text, draw_terminal_box, ACCENT_CYAN,
-    ACCENT_GOLD, ACCENT_GREEN, ACCENT_RED, COLOR_BG, PANEL_BG, PANEL_BORDER, PANEL_BORDER_FOCUSED,
-    TEXT_MUTED,
+    champion_badge_width, draw_badge, draw_brand_watermark, draw_centered_segments,
+    draw_centered_text, draw_champion_badge, draw_menu_card, draw_terminal_box,
+    draw_theme_badge_box, ACCENT_AMBER, ACCENT_CYAN, ACCENT_GOLD, ACCENT_GREEN, COLOR_BG,
+    PANEL_BG, PANEL_BORDER, PANEL_BORDER_FOCUSED, TEXT_MUTED,
 };
 use crate::view_cross_match::CrossMatchView;
 use crate::view_dqn_train::{DqnTrainView, DQN_CHAMPION_FILE};
@@ -143,44 +144,91 @@ pub fn next_mode(mode: AppMode, action: Action, has_dqn: bool, has_ga: bool) -> 
     }
 }
 
-/// The transient versus/cross match holder: exactly one is alive when the shell
-/// is in a match mode, freshly constructed on every entry.
-enum MatchView {
+enum MatchInner {
     DqnVersus(DqnVersusView),
     GaVersus(GaVersusView),
     Cross(CrossMatchView),
 }
 
+/// The transient versus/cross match holder: exactly one is alive when the shell
+/// is in a match mode, freshly constructed on every entry.
+pub struct MatchView {
+    inner: MatchInner,
+    slow: bool,
+}
+
 impl MatchView {
+    pub fn dqn_versus(v: DqnVersusView) -> Self {
+        Self {
+            inner: MatchInner::DqnVersus(v),
+            slow: true,
+        }
+    }
+
+    pub fn ga_versus(v: GaVersusView) -> Self {
+        Self {
+            inner: MatchInner::GaVersus(v),
+            slow: true,
+        }
+    }
+
+    pub fn cross(v: CrossMatchView) -> Self {
+        Self {
+            inner: MatchInner::Cross(v),
+            slow: true,
+        }
+    }
+
+    pub fn is_slow(&self) -> bool {
+        self.slow
+    }
+
+    pub fn toggle_slow(&mut self) {
+        self.slow = !self.slow;
+    }
+
     fn tick(&mut self) {
-        match self {
-            MatchView::DqnVersus(v) => v.tick(),
-            MatchView::GaVersus(v) => v.tick(),
-            MatchView::Cross(v) => v.tick(),
+        let budget = if self.slow {
+            1
+        } else {
+            *crate::view_ga_train::MAX_FAST_TICKS_PER_FRAME
+        };
+        for _ in 0..budget {
+            match &mut self.inner {
+                MatchInner::DqnVersus(v) => v.tick(),
+                MatchInner::GaVersus(v) => v.tick(),
+                MatchInner::Cross(v) => v.tick(),
+            }
+            if self.is_finished() {
+                break;
+            }
+        }
+        if self.slow {
+            std::thread::sleep(std::time::Duration::from_millis(*crate::configs::SIM_SLEEP_MILLIS));
         }
     }
 
     fn is_finished(&self) -> bool {
-        match self {
-            MatchView::DqnVersus(v) => v.is_finished(),
-            MatchView::GaVersus(v) => v.is_finished(),
-            MatchView::Cross(v) => v.is_finished(),
+        match &self.inner {
+            MatchInner::DqnVersus(v) => v.is_finished(),
+            MatchInner::GaVersus(v) => v.is_finished(),
+            MatchInner::Cross(v) => v.is_finished(),
         }
     }
 
     fn restart(&mut self) {
-        match self {
-            MatchView::DqnVersus(v) => v.restart(),
-            MatchView::GaVersus(v) => v.restart(),
-            MatchView::Cross(v) => v.restart(),
+        match &mut self.inner {
+            MatchInner::DqnVersus(v) => v.restart(),
+            MatchInner::GaVersus(v) => v.restart(),
+            MatchInner::Cross(v) => v.restart(),
         }
     }
 
     fn draw(&self) {
-        match self {
-            MatchView::DqnVersus(v) => v.draw(),
-            MatchView::GaVersus(v) => v.draw(),
-            MatchView::Cross(v) => v.draw(),
+        match &self.inner {
+            MatchInner::DqnVersus(v) => v.draw(),
+            MatchInner::GaVersus(v) => v.draw(),
+            MatchInner::Cross(v) => v.draw(),
         }
     }
 }
@@ -361,6 +409,11 @@ impl App {
             self.navigate(Action::Esc);
             return;
         }
+        if is_key_released(KeyCode::Space) {
+            if let Some(view) = &mut self.dqn {
+                view.toggle_slow();
+            }
+        }
         if is_key_pressed(KeyCode::R) {
             if let Some(view) = &mut self.dqn {
                 view.fresh_agent();
@@ -409,6 +462,10 @@ impl App {
             }
         } else if finished && (is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter)) {
             self.navigate(Action::Enter);
+        } else if is_key_released(KeyCode::Space) {
+            if let Some(m) = &mut self.match_view {
+                m.toggle_slow();
+            }
         }
     }
 
@@ -445,7 +502,7 @@ impl App {
             }
             Transition::DqnVersusNew => {
                 self.mode = AppMode::DqnVersus;
-                self.match_view = Some(MatchView::DqnVersus(self.build_dqn_versus()));
+                self.match_view = Some(MatchView::dqn_versus(self.build_dqn_versus()));
             }
             Transition::GaTrainNew => {
                 self.mode = AppMode::GaTrain;
@@ -458,11 +515,11 @@ impl App {
             }
             Transition::GaVersusNew => {
                 self.mode = AppMode::GaVersus;
-                self.match_view = Some(MatchView::GaVersus(self.build_ga_versus()));
+                self.match_view = Some(MatchView::ga_versus(self.build_ga_versus()));
             }
             Transition::CrossNew => {
                 self.mode = AppMode::DqnVsGa;
-                self.match_view = Some(MatchView::Cross(self.build_cross_match()));
+                self.match_view = Some(MatchView::cross(self.build_cross_match()));
             }
             Transition::ThemeConfig => {
                 self.mode = AppMode::ThemeConfig;
@@ -572,147 +629,124 @@ impl App {
         let (w, h) = (screen_width(), screen_height());
         let center_x = w * 0.5;
 
-        // Top terminal title box
-        let title_w = (w * 0.58).clamp(420.0, 560.0);
-        let title_h = 72.0;
-        let title_x = center_x - title_w * 0.5;
+        let menu_w = (w * 0.72).clamp(560.0, 720.0);
+        let card_x = center_x - menu_w * 0.5;
+
+        // Top terminal title box & Theme box
         let title_y = (h * 0.04).max(12.0);
+        let title_h = 68.0;
+
+        let theme_text = format!("TEMA: {}", self.active_theme.name().to_uppercase());
+        let theme_dims = measure_text(&theme_text, None, 15, 1.0);
+        let theme_w = (theme_dims.width + 36.0).max(160.0);
+        let theme_h = 44.0;
+        let theme_x = card_x + menu_w - theme_w;
+        let theme_y = title_y + (title_h - theme_h) * 0.5;
+
+        let title_w = (theme_x - card_x - 18.0).max(360.0);
+        let title_x = card_x;
 
         draw_terminal_box(title_x, title_y, title_w, title_h, "SNAKE AI", false);
         draw_centered_text(
             "AUTONOMOUS DEEP RL & GA SYSTEM",
-            center_x,
-            title_y + 48.0,
+            title_x + title_w * 0.5,
+            title_y + 46.0,
             14.0,
             TEXT_MUTED,
         );
 
+        draw_theme_badge_box(theme_x, theme_y, theme_w, theme_h, self.active_theme.name());
+
         // Bottom status bar
-        let status_bar_h = 32.0;
+        let status_bar_h = 36.0;
         let status_bar_y = h - status_bar_h;
 
         // Check live champion status via lightweight file existence / memory checks
         let has_dqn_champ = self.has_dqn_champion();
         let has_ga_champ = self.has_ga_champion();
 
-        // 6 Menu Entries with live badges
+        // 6 Menu Entries
+        enum BadgeOption {
+            None,
+            Custom(String, Color),
+            Champion(bool),
+        }
+
         let dqn_train_badge = self
             .dqn
             .as_ref()
-            .map(|view| (format!("[PAUSADO - EP. {}]", view.episode()), ACCENT_GOLD));
+            .map(|view| BadgeOption::Custom(format!("[PAUSADO - EP. {}]", view.episode()), ACCENT_GOLD))
+            .unwrap_or(BadgeOption::None);
 
-        let dqn_versus_badge = if has_dqn_champ {
-            Some(("[CHAMPION LISTO]".to_string(), ACCENT_GREEN))
-        } else {
-            Some(("[REQUIERE CHAMPION]".to_string(), ACCENT_RED))
-        };
+        let dqn_versus_badge = BadgeOption::Champion(has_dqn_champ);
 
         let ga_train_badge = if self.ga.is_some() {
-            Some(("[PAUSADO]".to_string(), ACCENT_GOLD))
+            BadgeOption::Custom("[PAUSADO]".to_string(), ACCENT_GOLD)
         } else {
-            None
+            BadgeOption::None
         };
 
-        let ga_versus_badge = if has_ga_champ {
-            Some(("[CHAMPION LISTO]".to_string(), ACCENT_GREEN))
-        } else {
-            Some(("[REQUIERE CHAMPION]".to_string(), ACCENT_RED))
-        };
+        let ga_versus_badge = BadgeOption::Champion(has_ga_champ);
 
-        let cross_badge = if has_dqn_champ && has_ga_champ {
-            Some(("[CHAMPION LISTO]".to_string(), ACCENT_GREEN))
-        } else {
-            Some(("[REQUIERE CHAMPION]".to_string(), ACCENT_RED))
-        };
+        let cross_badge = BadgeOption::Champion(has_dqn_champ && has_ga_champ);
 
-        let theme_badge = Some((
-            format!("[TEMA: {}]", self.active_theme.name().to_uppercase()),
-            ACCENT_CYAN,
-        ));
-
-        let items: [(&str, Option<(String, Color)>); 6] = [
+        let items: [(&str, BadgeOption); 6] = [
             ("DQN Train", dqn_train_badge),
             ("DQN Versus", dqn_versus_badge),
             ("Algoritmo Genético (Train)", ga_train_badge),
             ("Algoritmo Genético (Versus)", ga_versus_badge),
             ("DQN vs Algoritmo Genético", cross_badge),
-            ("Configuración y Temas", theme_badge),
+            ("Configuración y Temas", BadgeOption::None),
         ];
 
-        let menu_w = (w * 0.72).clamp(560.0, 720.0);
-        let card_x = center_x - menu_w * 0.5;
         let start_y = title_y + title_h + (h * 0.03).max(14.0);
         let avail_h = status_bar_y - start_y - 14.0;
         let gap = 10.0;
         let card_h = ((avail_h - gap * 5.0) / 6.0).clamp(42.0, 56.0);
 
-        for (i, (label, badge_info)) in items.iter().enumerate() {
+        for (i, (label, badge_opt)) in items.iter().enumerate() {
             let card_y = start_y + i as f32 * (card_h + gap);
             let is_selected = i == self.menu_selection;
 
-            if is_selected {
-                draw_rectangle(
-                    card_x,
-                    card_y,
-                    menu_w,
-                    card_h,
-                    Color::new(0.08, 0.12, 0.16, 0.95),
-                );
-                draw_rectangle_lines(
-                    card_x + 1.0,
-                    card_y + 1.0,
-                    menu_w - 2.0,
-                    card_h - 2.0,
-                    1.0,
-                    PANEL_BORDER_FOCUSED,
-                );
-            }
-            draw_terminal_box(card_x, card_y, menu_w, card_h, "", is_selected);
+            draw_menu_card(card_x, card_y, menu_w, card_h, i + 1, label, is_selected);
 
-            // Retro cursor on left
-            if is_selected {
-                draw_text("▶", card_x + 12.0, card_y + card_h * 0.5 + 6.0, 18.0, ACCENT_CYAN);
-            }
-
-            // Key badge [ 1 ] .. [ 6 ]
-            let key_str = format!("[ {} ]", i + 1);
-            let key_color = if is_selected { ACCENT_CYAN } else { PANEL_BORDER };
-            let key_y = card_y + (card_h - 20.0) * 0.5;
-            draw_badge(&key_str, card_x + 34.0, key_y, key_color);
-
-            // Item label
-            let label_color = if is_selected { ACCENT_GOLD } else { WHITE };
-            draw_text(label, card_x + 92.0, card_y + card_h * 0.5 + 6.0, 19.0, label_color);
-
-            // Status badge (right-aligned)
-            if let Some((badge_str, badge_color)) = badge_info {
-                let b_dims = measure_text(badge_str, None, 13, 1.0);
-                let b_w = b_dims.width + 16.0;
-                let b_x = card_x + menu_w - 38.0 - b_w;
-                let b_y = card_y + (card_h - 20.0) * 0.5;
-                draw_badge(badge_str, b_x, b_y, *badge_color);
-            }
-
-            // Retro cursor on right
-            if is_selected {
-                draw_text("◀", card_x + menu_w - 24.0, card_y + card_h * 0.5 + 6.0, 18.0, ACCENT_CYAN);
+            // Badges (right-aligned)
+            match badge_opt {
+                BadgeOption::Champion(ready) => {
+                    let b_w = champion_badge_width(*ready);
+                    let b_x = card_x + menu_w - 38.0 - b_w;
+                    let b_y = card_y + (card_h - 22.0) * 0.5;
+                    draw_champion_badge(b_x, b_y, *ready);
+                }
+                BadgeOption::Custom(badge_str, badge_color) => {
+                    let b_dims = measure_text(badge_str, None, 13, 1.0);
+                    let b_w = b_dims.width + 16.0;
+                    let b_x = card_x + menu_w - 38.0 - b_w;
+                    let b_y = card_y + (card_h - 20.0) * 0.5;
+                    draw_badge(badge_str, b_x, b_y, *badge_color);
+                }
+                BadgeOption::None => {}
             }
         }
 
         // Bottom status bar across screen width
         draw_rectangle(0.0, status_bar_y, w, status_bar_h, PANEL_BG);
         draw_line(0.0, status_bar_y, w, status_bar_y, 1.5, PANEL_BORDER);
-        let status_text = format!(
-            "[1-6] / [↑↓] + [ENTER] Iniciar   [ESC] Salir   |   TEMA: {}",
-            self.active_theme.name()
-        );
-        draw_centered_text(
-            &status_text,
-            center_x,
-            status_bar_y + 20.0,
-            14.0,
-            TEXT_MUTED,
-        );
+        // Accent corner on left above SENTU watermark
+        draw_line(0.0, status_bar_y, 0.0, status_bar_y + 10.0, 3.0, ACCENT_AMBER);
+        draw_line(0.0, status_bar_y, 16.0, status_bar_y, 3.0, ACCENT_AMBER);
+
+        let segments = [
+            ("NAVEGACIÓN ", TEXT_MUTED),
+            ("[↑↓]", WHITE),
+            ("  |  SELECCIÓN ", TEXT_MUTED),
+            ("[1-6]", WHITE),
+            ("  |  CONFIRMAR ", TEXT_MUTED),
+            ("[ENTER]", WHITE),
+            ("  |  SALIR ", TEXT_MUTED),
+            ("[ESC]", WHITE),
+        ];
+        draw_centered_segments(&segments, center_x, status_bar_y + 22.0, 14.0);
     }
 
     fn draw_dqn_train(&mut self) {
@@ -895,6 +929,7 @@ impl App {
             cell_size,
             preview_theme,
             preview_colors.food,
+            1.0,
         );
 
         // Snake preview (head at (5,5), body 1 at (4,5), corner at (3,5), body 2 at (3,6), tail at (3,7))
@@ -1147,5 +1182,15 @@ mod tests {
         let app = super::App::new();
         let _ = app.has_dqn_champion();
         let _ = app.has_ga_champion();
+    }
+
+    #[test]
+    fn match_view_slow_toggle() {
+        let mut mv = super::MatchView::dqn_versus(crate::view_dqn_versus::DqnVersusView::new(None, None));
+        assert!(mv.is_slow());
+        mv.toggle_slow();
+        assert!(!mv.is_slow());
+        mv.toggle_slow();
+        assert!(mv.is_slow());
     }
 }
