@@ -1,27 +1,27 @@
 //! Deep Q-Network implementation for Snake
 //! Includes Q-network, experience replay, and training logic
 
+use std::sync::LazyLock;
 use rand::Rng;
+use crate::env_config::{env_f64, env_usize};
 use crate::nn::Net;
 
-// DQN hyperparameters are `pub` (design D-6): the dashboard's model-info
-// panel displays the real constants the agent is constructed with. Values are
-// pinned by `hyperparameter_constants_keep_their_pre_change_values` below.
-pub const REPLAY_BUFFER_SIZE: usize = 10000;
-pub const BATCH_SIZE: usize = 32;
-pub const GAMMA: f64 = 0.99;
-pub const LEARNING_RATE: f64 = 0.001;
-pub const EPSILON_START: f64 = 1.0;
-pub const EPSILON_END: f64 = 0.01;
-pub const EPSILON_DECAY: f64 = 0.995;
+// DQN hyperparameters are loaded dynamically from environment/.env with fallback defaults.
+pub static REPLAY_BUFFER_SIZE: LazyLock<usize> = LazyLock::new(|| env_usize("REPLAY_BUFFER_SIZE", 10000));
+pub static BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| env_usize("BATCH_SIZE", 32));
+pub static GAMMA: LazyLock<f64> = LazyLock::new(|| env_f64("GAMMA", 0.99));
+pub static LEARNING_RATE: LazyLock<f64> = LazyLock::new(|| env_f64("LEARNING_RATE", 0.001));
+pub static EPSILON_START: LazyLock<f64> = LazyLock::new(|| env_f64("EPSILON_START", 1.0));
+pub static EPSILON_END: LazyLock<f64> = LazyLock::new(|| env_f64("EPSILON_END", 0.01));
+pub static EPSILON_DECAY: LazyLock<f64> = LazyLock::new(|| env_f64("EPSILON_DECAY", 0.995));
 pub const DQN_INP_LAYER_SIZE: usize = 9;
 pub const DQN_HIDDEN_LAYER_SIZE: usize = 32;
 pub const DQN_OUTPUT_LAYER_SIZE: usize = 3;
 pub const DQN_ARCH: [usize; 3] = [DQN_INP_LAYER_SIZE, DQN_HIDDEN_LAYER_SIZE, DQN_OUTPUT_LAYER_SIZE];
-pub const TARGET_UPDATE_INTERVAL: usize = 100;
-pub const LOSS_EMA_ALPHA: f64 = 0.05;
-pub const DQN_STEP_LIMIT: usize = 500;
-pub const EPSILON_WARM_START: f64 = 0.3;
+pub static TARGET_UPDATE_INTERVAL: LazyLock<usize> = LazyLock::new(|| env_usize("TARGET_UPDATE_INTERVAL", 100));
+pub static LOSS_EMA_ALPHA: LazyLock<f64> = LazyLock::new(|| env_f64("LOSS_EMA_ALPHA", 0.05));
+pub static DQN_STEP_LIMIT: LazyLock<usize> = LazyLock::new(|| env_usize("DQN_STEP_LIMIT", 500));
+pub static EPSILON_WARM_START: LazyLock<f64> = LazyLock::new(|| env_f64("EPSILON_WARM_START", 0.3));
 
 #[derive(Clone)]
 pub struct Experience {
@@ -111,8 +111,8 @@ impl DQNAgent {
         Self {
             q_network,
             target_network,
-            replay_buffer: ReplayBuffer::new(REPLAY_BUFFER_SIZE),
-            epsilon: EPSILON_START,
+            replay_buffer: ReplayBuffer::new(*REPLAY_BUFFER_SIZE),
+            epsilon: *EPSILON_START,
             steps: 0,
             loss_ema: 0.0,
             target_updates: 0,
@@ -126,8 +126,8 @@ impl DQNAgent {
         Self {
             q_network,
             target_network,
-            replay_buffer: ReplayBuffer::new(REPLAY_BUFFER_SIZE),
-            epsilon: epsilon.clamp(EPSILON_END, EPSILON_START),
+            replay_buffer: ReplayBuffer::new(*REPLAY_BUFFER_SIZE),
+            epsilon: epsilon.clamp(*EPSILON_END, *EPSILON_START),
             steps: 0,
             loss_ema: 0.0,
             target_updates: 0,
@@ -156,11 +156,11 @@ impl DQNAgent {
     }
 
     pub fn train(&mut self) {
-        if self.replay_buffer.len() < BATCH_SIZE {
+        if self.replay_buffer.len() < *BATCH_SIZE {
             return;
         }
 
-        let batch = self.replay_buffer.sample(BATCH_SIZE);
+        let batch = self.replay_buffer.sample(*BATCH_SIZE);
         
         let batch_len = batch.len();
         let mut squared_error_sum = 0.0f64;
@@ -172,7 +172,7 @@ impl DQNAgent {
             let target_q = if exp.done {
                 exp.reward
             } else {
-                exp.reward + GAMMA * max_next_q
+                exp.reward + *GAMMA * max_next_q
             };
             
             // Gradient descent approximation via weight adjustment
@@ -185,15 +185,15 @@ impl DQNAgent {
         // error of this batch, smoothed for the dashboard. Never feeds back
         // into the weight update above.
         let batch_loss = squared_error_sum / batch_len as f64;
-        self.loss_ema = ema_update(self.loss_ema, batch_loss, LOSS_EMA_ALPHA);
+        self.loss_ema = ema_update(self.loss_ema, batch_loss, *LOSS_EMA_ALPHA);
 
         self.steps += 1;
         
         // Decay epsilon
-        self.epsilon = (self.epsilon * EPSILON_DECAY).max(EPSILON_END);
+        self.epsilon = (self.epsilon * *EPSILON_DECAY).max(*EPSILON_END);
         
         // Update target network every TARGET_UPDATE_INTERVAL steps
-        if self.steps % TARGET_UPDATE_INTERVAL == 0 {
+        if self.steps % *TARGET_UPDATE_INTERVAL == 0 {
             self.target_network = self.q_network.clone();
             self.target_updates += 1;
         }
@@ -221,9 +221,9 @@ impl DQNAgent {
 
         // Update output node: weights = [bias, w0, w1, ..., w31]
         let out_node = &mut self.q_network.layers[output_layer_idx].nodes[action];
-        out_node[0] += LEARNING_RATE * delta_out; // bias
+        out_node[0] += *LEARNING_RATE * delta_out; // bias
         for (j, w) in out_node.iter_mut().skip(1).enumerate() {
-            *w += LEARNING_RATE * delta_out * hidden_out[j];
+            *w += *LEARNING_RATE * delta_out * hidden_out[j];
         }
 
         // --- Hidden layer: backprop from the action node ---
@@ -233,9 +233,9 @@ impl DQNAgent {
             let sig_deriv_h = hj * (1.0 - hj);
             let delta_h = delta_out * out_weights_snapshot[j] * sig_deriv_h;
 
-            hidden_node[0] += LEARNING_RATE * delta_h; // bias
+            hidden_node[0] += *LEARNING_RATE * delta_h; // bias
             for (k, w) in hidden_node.iter_mut().skip(1).enumerate() {
-                *w += LEARNING_RATE * delta_h * inputs[k];
+                *w += *LEARNING_RATE * delta_h * inputs[k];
             }
         }
     }
@@ -266,15 +266,15 @@ mod tests {
     // are pinned here. No logic change anywhere in this module.
     #[test]
     fn hyperparameter_constants_keep_their_pre_change_values() {
-        assert_eq!(REPLAY_BUFFER_SIZE, 10000);
-        assert_eq!(BATCH_SIZE, 32);
-        assert_eq!(GAMMA, 0.99);
-        assert_eq!(LEARNING_RATE, 0.001);
-        assert_eq!(EPSILON_START, 1.0);
-        assert_eq!(EPSILON_END, 0.01);
-        assert_eq!(EPSILON_DECAY, 0.995);
-        assert_eq!(TARGET_UPDATE_INTERVAL, 100);
-        assert_eq!(LOSS_EMA_ALPHA, 0.05);
+        assert_eq!(*REPLAY_BUFFER_SIZE, 10000);
+        assert_eq!(*BATCH_SIZE, 32);
+        assert_eq!(*GAMMA, 0.99);
+        assert_eq!(*LEARNING_RATE, 0.001);
+        assert_eq!(*EPSILON_START, 1.0);
+        assert_eq!(*EPSILON_END, 0.01);
+        assert_eq!(*EPSILON_DECAY, 0.995);
+        assert_eq!(*TARGET_UPDATE_INTERVAL, 100);
+        assert_eq!(*LOSS_EMA_ALPHA, 0.05);
         assert_eq!(DQN_INP_LAYER_SIZE, 9);
         assert_eq!(DQN_HIDDEN_LAYER_SIZE, 32);
         assert_eq!(DQN_OUTPUT_LAYER_SIZE, 3);
@@ -284,8 +284,8 @@ mod tests {
 
     #[test]
     fn training_metrics_constants_keep_their_pinned_values() {
-        assert_eq!(TARGET_UPDATE_INTERVAL, 100);
-        assert_eq!(LOSS_EMA_ALPHA, 0.05);
+        assert_eq!(*TARGET_UPDATE_INTERVAL, 100);
+        assert_eq!(*LOSS_EMA_ALPHA, 0.05);
     }
 
     #[test]
@@ -329,7 +329,7 @@ mod tests {
         assert_eq!(agent.loss_ema(), 0.0, "loss EMA starts at 0.0 before any train() call");
         assert_eq!(agent.target_updates(), 0);
 
-        for _ in 0..BATCH_SIZE {
+        for _ in 0..*BATCH_SIZE {
             agent.store_experience(synth_experience());
         }
         agent.train();
@@ -343,11 +343,11 @@ mod tests {
     #[test]
     fn target_updates_increments_every_interval_train_steps() {
         let mut agent = DQNAgent::new();
-        for _ in 0..(BATCH_SIZE * 4) {
+        for _ in 0..(*BATCH_SIZE * 4) {
             agent.store_experience(synth_experience());
         }
 
-        for _ in 0..TARGET_UPDATE_INTERVAL {
+        for _ in 0..*TARGET_UPDATE_INTERVAL {
             agent.train();
         }
         assert_eq!(agent.target_updates(), 1, "exactly one sync after TARGET_UPDATE_INTERVAL train steps");
@@ -355,7 +355,7 @@ mod tests {
         agent.train();
         assert_eq!(agent.target_updates(), 1, "no sync at INTERVAL + 1 steps");
 
-        for _ in 0..(TARGET_UPDATE_INTERVAL - 1) {
+        for _ in 0..(*TARGET_UPDATE_INTERVAL - 1) {
             agent.train();
         }
         assert_eq!(agent.target_updates(), 2, "second sync at 2 * INTERVAL steps");

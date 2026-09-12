@@ -181,11 +181,11 @@ impl Layer {
 
         for n in self.nodes.iter_mut() {
             for val in n.iter_mut() {
-                if rng.gen_range(0.0..1.0) >= BRAIN_MUTATION_RATE {
+                if rng.gen_range(0.0..1.0) >= *BRAIN_MUTATION_RATE {
                     continue;
                 }
 
-                *val += rng.gen_range(-BRAIN_MUTATION_VARIATION..BRAIN_MUTATION_VARIATION) as f64;
+                *val += rng.gen_range(-*BRAIN_MUTATION_VARIATION..*BRAIN_MUTATION_VARIATION) as f64;
                 if *val > 1.0 || *val < -1.0 {
                     let random_weight = rng.gen_range(-1.0f64..1.0f64);
                     *val = random_weight;

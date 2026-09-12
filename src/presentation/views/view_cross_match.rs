@@ -98,7 +98,8 @@ fn cross_flavor() -> VsFlavor {
         eliminated1_label: "Algoritmo Genético eliminado!",
         eliminated2_label: "DQN eliminado!",
         back_label: "[ESC] Menú",
-        controls_label: "[ESC] Menú",
+        controls_label: "[SPACE] Vel  [ESC] Menú",
+        arena_title: "DQN VS ALGORITMO GENÉTICO",
     }
 }
 
@@ -115,7 +116,10 @@ enum CrossInner {
     /// owns `Esc`.
     NeedsChampions { message: &'static str },
     /// A running/finished [`BestOfSeries`] between both champions.
-    Series(CrossSeries),
+    Series {
+        series: CrossSeries,
+        flavor: VsFlavor,
+    },
 }
 
 impl CrossMatchView {
@@ -135,9 +139,12 @@ impl CrossMatchView {
         if let CrossMatchPlayers::Ready { ga, dqn } = plan {
             let flavor = cross_flavor();
             let builder: Box<dyn FnMut() -> VersusMatch> =
-                Box::new(move || VersusMatch::new_cross(ga.clone(), dqn.clone(), flavor));
+                Box::new(move || VersusMatch::new_cross(ga.clone(), dqn.clone()));
             return Self {
-                inner: CrossInner::Series(BestOfSeries::new(builder)),
+                inner: CrossInner::Series {
+                    series: BestOfSeries::new(builder),
+                    flavor,
+                },
             };
         }
         // A non-Ready plan is exactly "some side is missing", which always
@@ -155,21 +162,21 @@ impl CrossMatchView {
     pub fn message(&self) -> Option<&'static str> {
         match &self.inner {
             CrossInner::NeedsChampions { message } => Some(message),
-            CrossInner::Series(_) => None,
+            CrossInner::Series { .. } => None,
         }
     }
 
     /// Advance the series one tick. No-op in the message state and once the
     /// series is over.
     pub fn tick(&mut self) {
-        if let CrossInner::Series(series) = &mut self.inner {
+        if let CrossInner::Series { series, .. } = &mut self.inner {
             series.tick();
         }
     }
 
     /// Reset the series for a rematch if in active series state.
     pub fn restart(&mut self) {
-        if let CrossInner::Series(series) = &mut self.inner {
+        if let CrossInner::Series { series, .. } = &mut self.inner {
             series.restart();
         }
     }
@@ -179,7 +186,7 @@ impl CrossMatchView {
     pub fn is_finished(&self) -> bool {
         match &self.inner {
             CrossInner::NeedsChampions { .. } => false,
-            CrossInner::Series(series) => series.is_series_over(),
+            CrossInner::Series { series, .. } => series.is_series_over(),
         }
     }
 
@@ -188,7 +195,7 @@ impl CrossMatchView {
     pub fn winner(&self) -> Option<Winner> {
         match &self.inner {
             CrossInner::NeedsChampions { .. } => None,
-            CrossInner::Series(series) => series.series_winner(),
+            CrossInner::Series { series, .. } => series.series_winner(),
         }
     }
 
@@ -203,7 +210,9 @@ impl CrossMatchView {
                     "[ESC] Menu",
                 );
             }
-            CrossInner::Series(series) => series.draw(),
+            CrossInner::Series { series, flavor } => {
+                crate::viz_vs::VizVS::new().draw_series_match(series, flavor);
+            }
         }
     }
 }
@@ -211,7 +220,7 @@ impl CrossMatchView {
 #[cfg(test)]
 mod tests {
     use super::{
-        cross_missing_message, plan_cross_match, CrossMatchPlayers, CrossMatchView,
+        cross_flavor, cross_missing_message, plan_cross_match, CrossMatchPlayers, CrossMatchView,
         BOTH_MISSING_MESSAGE, DQN_MISSING_MESSAGE, GA_MISSING_MESSAGE,
     };
     use crate::nn::Net;
@@ -337,5 +346,11 @@ mod tests {
             Some(DQN_MISSING_MESSAGE),
             "old-arch DQN champion must be treated as missing"
         );
+    }
+
+    #[test]
+    fn cross_flavor_has_expanded_arena_title() {
+        let flavor = cross_flavor();
+        assert_eq!(flavor.arena_title, "DQN VS ALGORITMO GENÉTICO");
     }
 }

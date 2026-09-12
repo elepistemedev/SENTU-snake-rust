@@ -5,7 +5,7 @@ use crate::ui_kit::{
     draw_centered_text, draw_terminal_box, ACCENT_CYAN, ACCENT_GOLD, ACCENT_GREEN, ACCENT_RED,
     TEXT_MUTED,
 };
-use crate::versus::SeriesInfo;
+use crate::versus::{BestOfSeries, SeriesInfo, VersusMatch};
 use macroquad::prelude::*;
 
 const PANEL_BORDER: Color = Color::new(0.4, 0.4, 0.4, 1.0);
@@ -99,6 +99,31 @@ pub struct VsFlavor {
     pub back_label: &'static str,
     /// Hint drawn at the bottom of the center panel.
     pub controls_label: &'static str,
+    /// Full, expanded title of the versus mode drawn at the bottom right.
+    pub arena_title: &'static str,
+}
+
+pub const ARENA_TITLE_FONT_SIZE: f32 = 20.0;
+pub const ARENA_TITLE_MARGIN_RIGHT: f32 = 24.0;
+pub const ARENA_TITLE_MARGIN_BOTTOM: f32 = 14.0;
+
+/// Calculate the bottom-right (x, y) coordinates for the arena title text.
+#[inline]
+pub fn arena_title_pos(screen_w: f32, screen_h: f32, text_w: f32) -> (f32, f32) {
+    let x = screen_w - text_w - ARENA_TITLE_MARGIN_RIGHT;
+    let y = screen_h - ARENA_TITLE_MARGIN_BOTTOM;
+    (x, y)
+}
+
+/// Draw the extended versus mode title in the bottom-right corner.
+pub fn draw_arena_title(screen_w: f32, screen_h: f32, title: &str) {
+    if title.is_empty() {
+        return;
+    }
+    let dims = measure_text(title, None, ARENA_TITLE_FONT_SIZE as u16, 1.0);
+    let (x, y) = arena_title_pos(screen_w, screen_h, dims.width);
+    let color = Color::new(0.65, 0.75, 0.85, 0.90);
+    draw_text(title, x, y, ARENA_TITLE_FONT_SIZE, color);
 }
 
 impl VsFlavor {
@@ -120,6 +145,7 @@ impl VsFlavor {
             eliminated2_label: "2nd Best eliminated!",
             back_label: "[V] Back to Training",
             controls_label: "[SPACE] Slow  [ESC] Quit",
+            arena_title: "ALGORITMO GENÉTICO (VERSUS)",
         }
     }
 }
@@ -146,6 +172,21 @@ impl VizVS {
         max_score_ever: usize,
     ) {
         self.draw_flavored(game1, game2, &VsFlavor::ga_default(max_score_ever));
+    }
+
+    /// Draw a versus match for the given flavor.
+    pub fn draw_match(&self, match_: &VersusMatch, flavor: &VsFlavor) {
+        self.draw_flavored(match_.game1(), match_.game2(), flavor);
+    }
+
+    /// Draw a versus series match with the series HUD overlay.
+    pub fn draw_series_match<B: FnMut() -> VersusMatch>(
+        &self,
+        series: &BestOfSeries<B>,
+        flavor: &VsFlavor,
+    ) {
+        let current = series.current_match();
+        self.draw_series(current.game1(), current.game2(), flavor, &series.series_info());
     }
 
     /// Draw a versus match for any [`VsFlavor`].
@@ -197,6 +238,8 @@ impl VizVS {
             flavor,
             None,
         );
+
+        draw_arena_title(screen_w, screen_h, flavor.arena_title);
     }
 
     /// Draw a versus match with the series HUD overlay.
@@ -254,6 +297,9 @@ impl VizVS {
         );
 
         self.draw_series_hud(center_x, center_panel_w, flavor, info);
+
+        // Bottom-right arena mode title
+        draw_arena_title(screen_w, screen_h, flavor.arena_title);
 
         // Celebratory victory popup modal when series concludes
         if info.is_over {
@@ -380,6 +426,7 @@ impl VizVS {
             tile_size,
             theme,
             theme.colors().food,
+            game.core.food_freshness(),
         );
 
         // Snake
@@ -906,5 +953,21 @@ mod tests {
         let flavor = VsFlavor::ga_default(0);
         let summary = format_stage_summary(&info.stages[0].unwrap(), &flavor);
         assert_eq!(summary, "S1: BEST EVER (12-4)");
+    }
+
+    #[test]
+    fn ga_default_flavor_has_expanded_arena_title() {
+        let flavor = VsFlavor::ga_default(42);
+        assert_eq!(flavor.arena_title, "ALGORITMO GENÉTICO (VERSUS)");
+    }
+
+    #[test]
+    fn arena_title_position_aligns_to_bottom_right() {
+        let screen_w = 1000.0;
+        let screen_h = 700.0;
+        let text_w = 200.0;
+        let (x, y) = arena_title_pos(screen_w, screen_h, text_w);
+        assert_eq!(x, 1000.0 - 200.0 - 24.0);
+        assert_eq!(y, 700.0 - 14.0);
     }
 }

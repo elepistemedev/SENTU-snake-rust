@@ -13,7 +13,7 @@ use crate::nn::Net;
 pub const DQN_METADATA_FILE: &str = "dqn_metadata.json";
 
 fn default_epsilon() -> f64 {
-    crate::dqn::EPSILON_WARM_START
+    *crate::dqn::EPSILON_WARM_START
 }
 
 /// Bookkeeping metadata associated with the persisted DQN champion.
@@ -171,7 +171,7 @@ mod tests {
         let meta: DqnMetadata = serde_json::from_str(json).expect("should deserialize legacy json");
         assert_eq!(meta.best_score, 15);
         assert_eq!(meta.episode, 42);
-        assert_eq!(meta.epsilon, crate::dqn::EPSILON_WARM_START);
+        assert_eq!(meta.epsilon, *crate::dqn::EPSILON_WARM_START);
     }
 }
 

@@ -1,18 +1,17 @@
 //! Shared versus arena — two `Net` brains fight head-to-head.
 //!
-//! The pure core ([`Winner`], [`resolve_winner`], [`run_headless_match`]) is
-//! macroquad-free: it only steps [`Game`]s, so it can be unit-tested headless.
-//! [`VersusMatch`] adds the renderable side by delegating drawing to
-//! `VizVS::draw_flavored`; it never calls into a macroquad window itself and
-//! performs no input handling (the shell owns `Esc`).
+//! The pure core ([`Winner`], [`resolve_winner`], [`run_headless_match`],
+//! [`VersusMatch`], [`BestOfSeries`]) is completely macroquad-free and
+//! presentation-agnostic, stepping [`Game`]s in lockstep. Rendering is handled
+//! separately by the presentation layer ([`crate::viz_vs`]).
 //!
 //! [`BestOfSeries`] orchestrates a 5-game series with best-of-3 semantics:
 //! it holds the active match, tracks wins per side, and advances automatically
 //! between games after a short frame-based pause (~2 s at 60 fps).
 
+use crate::agent::{Agent, DqnPolicyAgent, GaAgent};
 use crate::game::Game;
 use crate::nn::Net;
-use crate::viz_vs::{VsFlavor, VizVS};
 
 /// Who won a finished versus match. `Left` is player 1 (first game), `Right`
 /// is player 2 (second game); equal scores resolve to `Tie`.
@@ -61,46 +60,66 @@ pub fn run_headless_match(net_left: &Net, net_right: &Net, max_ticks: usize) -> 
 
     if game1.is_complete && game2.is_complete {
         Some(resolve_winner(game1.score(), game2.score()))
+    } else if max_ticks > 0 {
+        Some(resolve_winner(game1.score(), game2.score()))
     } else {
         None
     }
 }
 
-/// A renderable versus match: two [`Game`]s with fixed brains plus the
-/// [`VsFlavor`] that describes titles, colors, and labels for drawing.
+/// Maximum ticks allowed in an individual versus match before declaring timeout.
+pub const MATCH_MAX_TICKS: usize = 1_000;
+
+/// A versus match: two [`Game`]s with fixed brains stepped in lockstep.
 pub struct VersusMatch {
     game1: Game,
     game2: Game,
-    flavor: VsFlavor,
+    ticks: usize,
 }
 
 impl VersusMatch {
+    /// Build a fresh match pitting two arbitrary agents against each other.
+    pub fn from_agents(agent_left: Box<dyn Agent>, agent_right: Box<dyn Agent>) -> Self {
+        Self {
+            game1: Game::with_agent(agent_left),
+            game2: Game::with_agent(agent_right),
+            ticks: 0,
+        }
+    }
+
     /// Build a fresh match pitting `net_left` (player 1) against `net_right`
     /// (player 2). Every construction is a fresh arena state.
-    pub fn new(net_left: Net, net_right: Net, flavor: VsFlavor) -> Self {
-        Self {
-            game1: Game::with_brain(&net_left),
-            game2: Game::with_brain(&net_right),
-            flavor,
-        }
+    pub fn new(net_left: Net, net_right: Net) -> Self {
+        Self::from_agents(
+            Box::new(GaAgent::new(net_left)),
+            Box::new(GaAgent::new(net_right)),
+        )
     }
 
     /// DQN-vs-DQN: both players use relative brains (9-input, 3-output).
-    pub fn new_relative(net_left: Net, net_right: Net, flavor: VsFlavor) -> Self {
-        Self {
-            game1: Game::with_relative_brain(&net_left),
-            game2: Game::with_relative_brain(&net_right),
-            flavor,
-        }
+    pub fn new_relative(net_left: Net, net_right: Net) -> Self {
+        Self::from_agents(
+            Box::new(DqnPolicyAgent::new(net_left)),
+            Box::new(DqnPolicyAgent::new(net_right)),
+        )
     }
 
     /// Cross GA-vs-DQN: GA left (absolute brain), DQN right (relative brain).
-    pub fn new_cross(ga_net: Net, dqn_net: Net, flavor: VsFlavor) -> Self {
-        Self {
-            game1: Game::with_brain(&ga_net),
-            game2: Game::with_relative_brain(&dqn_net),
-            flavor,
-        }
+    pub fn new_cross(ga_net: Net, dqn_net: Net) -> Self {
+        Self::from_agents(
+            Box::new(GaAgent::new(ga_net)),
+            Box::new(DqnPolicyAgent::new(dqn_net)),
+        )
+    }
+
+    /// Access player 1's game.
+    pub fn game1(&self) -> &Game {
+        &self.game1
+    }
+
+    /// Access player 2's game.
+    pub fn game2(&self) -> &Game {
+        &self.game2
     }
 
     /// Advance the match one tick: each player moves at most once. The step is
@@ -110,8 +129,13 @@ impl VersusMatch {
         if self.is_finished() {
             return;
         }
+        self.ticks += 1;
         self.game1.update();
         self.game2.update();
+        if self.ticks >= MATCH_MAX_TICKS {
+            self.game1.is_complete = true;
+            self.game2.is_complete = true;
+        }
     }
 
     /// True once both games have ended; only then is a [`Winner`] final.
@@ -126,21 +150,6 @@ impl VersusMatch {
         } else {
             None
         }
-    }
-
-    /// Draw the arena via [`VizVS::draw_flavored`]. When the match is finished
-    /// the flavor's winner banner and `back_label` hint are already overlaid
-    /// by the renderer. No input handling here — the shell owns `Esc`.
-    pub fn draw(&self) {
-        VizVS::new().draw_flavored(&self.game1, &self.game2, &self.flavor);
-    }
-
-    /// Draw the arena with a series HUD overlay (game number + win pips).
-    ///
-    /// Used by [`BestOfSeries`] so it can pass the series scoreboard to the
-    /// renderer without exposing `game1`/`game2`/`flavor` as public fields.
-    pub fn draw_with_series_info(&self, info: &SeriesInfo) {
-        VizVS::new().draw_series(&self.game1, &self.game2, &self.flavor, info);
     }
 }
 
@@ -335,39 +344,11 @@ impl<B: FnMut() -> VersusMatch> BestOfSeries<B> {
             stages: self.stages,
         }
     }
-
-    /// Draw the active match with the series HUD overlay
-    /// (delegates to [`VersusMatch::draw_with_series_info`]).
-    pub fn draw(&self) {
-        self.current.draw_with_series_info(&self.series_info());
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use macroquad::color::Color;
-
-    /// A plain flavor with inert labels: only used to exercise state-machine
-    /// logic headless — `draw` is never called in these tests.
-    fn inert_flavor() -> VsFlavor {
-        VsFlavor {
-            player1_title: "A",
-            player2_title: "B",
-            player1_color: Color::new(1.0, 0.0, 0.0, 1.0),
-            player2_color: Color::new(0.0, 0.0, 1.0, 1.0),
-            record: None,
-            record_beat_label: "",
-            new_record_label: "",
-            winner1_label: "A WINS!",
-            winner2_label: "B WINS!",
-            tie_label: "TIE!",
-            eliminated1_label: "",
-            eliminated2_label: "",
-            back_label: "",
-            controls_label: "",
-        }
-    }
 
     // --- resolve_winner: pure score comparison -------------------------------
 
@@ -426,7 +407,7 @@ mod tests {
 
     #[test]
     fn versus_match_steps_both_games_until_finished_then_yields_winner() {
-        let mut m = VersusMatch::new(Net::new(), Net::new(), inert_flavor());
+        let mut m = VersusMatch::new(Net::new(), Net::new());
         assert!(!m.is_finished());
         assert_eq!(m.winner(), None);
 
@@ -447,7 +428,7 @@ mod tests {
     fn versus_match_finish_is_sticky_across_extra_ticks() {
         // Once finished, further ticks must not resurrect or re-roll anything:
         // the finished state and resolved winner stay put.
-        let mut m = VersusMatch::new(Net::new(), Net::new(), inert_flavor());
+        let mut m = VersusMatch::new(Net::new(), Net::new());
         let mut ticks = 0;
         while !m.is_finished() && ticks < 10_000 {
             m.tick();
@@ -467,7 +448,7 @@ mod tests {
     fn headless_relative_match_terminates_and_yields_winner() {
         const MAX_TICKS: usize = 10_000;
         let dqn_net = Net::new_with_sizes(&[9, 32, 3]);
-        let mut m = VersusMatch::new_relative(dqn_net.clone(), dqn_net.clone(), inert_flavor());
+        let mut m = VersusMatch::new_relative(dqn_net.clone(), dqn_net.clone());
         let mut ticks = 0;
         while !m.is_finished() && ticks < MAX_TICKS {
             m.tick();
@@ -482,7 +463,7 @@ mod tests {
         const MAX_TICKS: usize = 10_000;
         let ga_net = Net::new();
         let dqn_net = Net::new_with_sizes(&[9, 32, 3]);
-        let mut m = VersusMatch::new_cross(ga_net, dqn_net, inert_flavor());
+        let mut m = VersusMatch::new_cross(ga_net, dqn_net);
         let mut ticks = 0;
         while !m.is_finished() && ticks < MAX_TICKS {
             m.tick();
@@ -494,7 +475,7 @@ mod tests {
 
     #[test]
     fn series_records_stage_results_for_each_completed_stage() {
-        let builder = || VersusMatch::new(Net::new(), Net::new(), inert_flavor());
+        let builder = || VersusMatch::new(Net::new(), Net::new());
         let mut series = BestOfSeries::new(builder);
         assert_eq!(series.series_info().stages, [None; SERIES_GAMES]);
 
@@ -518,5 +499,19 @@ mod tests {
         assert_eq!(series.series_info().games_played, 0);
         assert_eq!(series.series_info().left_wins, 0);
         assert_eq!(series.series_info().right_wins, 0);
+    }
+
+    #[test]
+    fn versus_match_from_arbitrary_agents_runs_and_terminates() {
+        let ga = Box::new(GaAgent::new(Net::new()));
+        let dqn = Box::new(DqnPolicyAgent::new(Net::new_with_sizes(&[9, 32, 3])));
+        let mut m = VersusMatch::from_agents(ga, dqn);
+        let mut ticks = 0;
+        while !m.is_finished() && ticks < 10_000 {
+            m.tick();
+            ticks += 1;
+        }
+        assert!(m.is_finished());
+        assert!(m.winner().is_some());
     }
 }

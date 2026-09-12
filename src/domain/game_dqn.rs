@@ -1,43 +1,52 @@
 //! Game logic adapted for DQN training
 //! Single agent learning through experience
 
-use crate::dqn::{DQNAgent, Experience, DQN_STEP_LIMIT};
+use crate::dqn::{DQNAgent, Experience};
+use crate::snake_core::SnakeCore;
 use crate::utils::{relative_dir, rotate_vision_to_relative};
-use crate::*;
+
+
 
 pub struct GameDQN {
-    pub head: Point,
-    pub body: Vec<Point>,
-    pub food: Point,
-    pub dir: FourDirs,
+    /// Shared board physics (head, body, food, dir, swallow, step counters).
+    pub core: SnakeCore,
     pub agent: DQNAgent,
     pub score: usize,
     pub steps: usize,
     pub is_complete: bool,
-    pub swallow: crate::render_snake::SwallowTracker,
     prev_distance: f64,
-    steps_without_food: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Deref – lets callers write `game.head`, `game.body`, `game.swallow`, etc.
+// ---------------------------------------------------------------------------
+
+impl std::ops::Deref for GameDQN {
+    type Target = SnakeCore;
+    #[inline]
+    fn deref(&self) -> &SnakeCore {
+        &self.core
+    }
+}
+
+impl std::ops::DerefMut for GameDQN {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut SnakeCore {
+        &mut self.core
+    }
 }
 
 impl GameDQN {
     pub fn new() -> Self {
-        let head = Point::new(GRID_W / 2, GRID_H / 2);
-        let mut body = Vec::new();
-        body.push(head.clone());
-        let food = Point::rand();
-        
+        let core = SnakeCore::new();
+        let prev_distance = SnakeCore::calculate_distance(&core.head, &core.food);
         Self {
-            body,
-            head,
-            food,
-            dir: FourDirs::get_rand_dir(),
+            prev_distance,
+            core,
             agent: DQNAgent::new(),
             score: 0,
             steps: 0,
             is_complete: false,
-            swallow: crate::render_snake::SwallowTracker::new(),
-            prev_distance: Self::calculate_distance(&head, &food),
-            steps_without_food: 0,
         }
     }
 
@@ -50,17 +59,11 @@ impl GameDQN {
     }
 
     pub fn reset(&mut self) {
-        self.head = Point::new(GRID_W / 2, GRID_H / 2);
-        self.body.clear();
-        self.body.push(self.head.clone());
-        self.food = Point::rand();
-        self.dir = FourDirs::get_rand_dir();
+        self.core.reset();
         self.score = 0;
         self.steps = 0;
         self.is_complete = false;
-        self.swallow.reset();
-        self.prev_distance = Self::calculate_distance(&self.head, &self.food);
-        self.steps_without_food = 0;
+        self.prev_distance = SnakeCore::calculate_distance(&self.core.head, &self.core.food);
     }
 
     /// Current 9-input heading-relative observation (3 directions ×
@@ -70,7 +73,7 @@ impl GameDQN {
     /// selection. Thin read-only wrapper: it never advances `steps` or
     /// mutates the board.
     pub fn observation(&self) -> Vec<f64> {
-        rotate_vision_to_relative(&self.get_state(), self.dir)
+        rotate_vision_to_relative(&self.core.get_relative_state(), self.core.dir)
     }
 
     pub fn step(&mut self) -> (f64, bool) {
@@ -80,49 +83,48 @@ impl GameDQN {
 
         let state = self.observation();
         let action = self.agent.select_action(&state);
-        self.dir = relative_dir(self.dir, action);
+        self.core.dir = relative_dir(self.core.dir, action);
         self.steps += 1;
-        self.steps_without_food += 1;
-        
+        self.core.steps_without_food += 1;
+
         // Move snake
-        self.head.x += self.dir.value().0;
-        self.head.y += self.dir.value().1;
-        
+        self.core.head.x += self.core.dir.value().0;
+        self.core.head.y += self.core.dir.value().1;
+
         let mut reward;
         let mut done = false;
-        
+
         // Check collision with wall
-        if self.is_wall(self.head) {
+        if self.core.is_wall(self.core.head) {
             reward = -1.0;
             done = true;
             self.is_complete = true;
-        } else if self.head == self.food {
+        } else if self.core.head == self.core.food {
             // Ate food: body grows by retaining previous tail
-            self.body.insert(0, self.head);
+            self.core.body.insert(0, self.core.head);
             reward = 2.0;
             self.score += 1;
-            self.swallow.advance(self.body.len());
-            self.swallow.push_eating();
-            self.food = self.get_random_empty_pos();
-            self.prev_distance = Self::calculate_distance(&self.head, &self.food);
-            self.steps_without_food = 0;
-            if self.is_snake_body(self.head) {
+            self.core.swallow.advance(self.core.body.len());
+            self.core.swallow.push_eating();
+            self.core.respawn_food();
+            self.prev_distance = SnakeCore::calculate_distance(&self.core.head, &self.core.food);
+            if self.core.is_snake_body(self.core.head) {
                 reward = -1.0;
                 done = true;
                 self.is_complete = true;
             }
         } else {
             // Normal move: insert new head at front, remove old tail
-            self.body.insert(0, self.head);
-            self.body.pop();
-            self.swallow.advance(self.body.len());
+            self.core.body.insert(0, self.core.head);
+            self.core.body.pop();
+            self.core.swallow.advance(self.core.body.len());
 
-            if self.is_snake_body(self.head) {
+            if self.core.is_snake_body(self.core.head) {
                 reward = -1.0;
                 done = true;
                 self.is_complete = true;
             } else {
-                let new_distance = Self::calculate_distance(&self.head, &self.food);
+                let new_distance = SnakeCore::calculate_distance(&self.core.head, &self.core.food);
                 if new_distance < self.prev_distance {
                     reward = 0.1; // Reward for getting closer
                 } else {
@@ -131,22 +133,18 @@ impl GameDQN {
                 self.prev_distance = new_distance;
             }
         }
-        
-        // Check step limit
-        if self.steps >= DQN_STEP_LIMIT {
-            done = true;
-            self.is_complete = true;
+
+        // Food rotting / loss of value: when the apple loses value (reaches hunger limit),
+        // spawn another apple instead of ending the episode / killing the snake.
+        let step_limit = self.core.hunger_limit();
+        if !done && self.core.steps_without_food >= step_limit {
+            self.core.respawn_food();
+            self.prev_distance = SnakeCore::calculate_distance(&self.core.head, &self.core.food);
+            reward = -0.5;
         }
 
-        // Anti-stagnation: end episode if no food eaten for too long
-        if !done && self.steps_without_food >= DQN_STEP_LIMIT {
-            reward = -0.5;
-            done = true;
-            self.is_complete = true;
-        }
-        
         let next_state = self.observation();
-        
+
         // Store experience
         let exp = Experience {
             state,
@@ -156,100 +154,18 @@ impl GameDQN {
             done,
         };
         self.agent.store_experience(exp);
-        
+
         // Train
         self.agent.train();
-        
+
         (reward, done)
-    }
-
-    fn get_state(&self) -> Vec<f64> {
-        let mut state = Vec::new();
-        let dirs = FourDirs::get_all_dirs();
-
-        let dx = (self.food.x - self.head.x) as f64;
-        let dy = (self.food.y - self.head.y) as f64;
-        let food_dist = (dx * dx + dy * dy).sqrt();
-        let (unit_fx, unit_fy) = if food_dist > 0.0 {
-            (dx / food_dist, dy / food_dist)
-        } else {
-            (0.0, 0.0)
-        };
-        
-        for d in dirs {
-            let (wall, food_on_ray, body) = self.look_in_dir(self.head, d);
-            state.push(wall as f64);
-            let proj = unit_fx * d.0 as f64 + unit_fy * d.1 as f64;
-            let food_val = if food_on_ray {
-                1.0
-            } else {
-                proj.max(0.0)
-            };
-            state.push(food_val);
-            state.push(body as f64);
-        }
-        
-        state
-    }
-
-    fn look_in_dir(&self, from: Point, dir: (i32, i32)) -> (f64, bool, f64) {
-        let mut distance = 1.0;
-        let mut food_found = false;
-        let mut body_distance = f64::INFINITY;
-        
-        let mut current = Point::new(from.x + dir.0, from.y + dir.1);
-        
-        while !self.is_wall(current) {
-            if current == self.food {
-                food_found = true;
-            }
-            if self.is_snake_body(current) && body_distance == f64::INFINITY {
-                body_distance = distance;
-            }
-            
-            current.x += dir.0;
-            current.y += dir.1;
-            distance += 1.0;
-        }
-        
-        let wall_dist = 1.0 / distance;
-        let body_dist = if body_distance == f64::INFINITY {
-            0.0
-        } else {
-            1.0 / body_distance
-        };
-        
-        (wall_dist, food_found, body_dist)
-    }
-
-    fn calculate_distance(p1: &Point, p2: &Point) -> f64 {
-        (((p1.x - p2.x).pow(2) + (p1.y - p2.y).pow(2)) as f64).sqrt()
-    }
-
-    fn is_wall(&self, pt: Point) -> bool {
-        pt.x >= GRID_W || pt.x <= 0 || pt.y >= GRID_H || pt.y <= 0
-    }
-
-    fn is_snake_body(&self, pt: Point) -> bool {
-        self.body.iter().skip(1).any(|p| *p == pt)
-    }
-
-    fn get_random_empty_pos(&self) -> Point {
-        let mut pt = Point::rand();
-        let mut tries = 0;
-            
-        while tries < 10 && self.body.contains(&pt) {
-            pt = Point::rand();
-            tries += 1;
-        }
-            
-        pt
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::*;
 
     // --- observation: 9-input heading-relative view ----------------------------
 
@@ -284,15 +200,15 @@ mod tests {
     fn observation_places_forward_food_in_first_group_when_heading_top() {
         let mut game = GameDQN::new();
         // Force heading Top so "forward" is the absolute TOP direction.
-        game.dir = FourDirs::Top;
+        game.core.dir = FourDirs::Top;
         // Place food exactly one cell forward (above the head).
-        game.food = Point::new(game.head.x, game.head.y - 1);
+        game.core.food = Point::new(game.core.head.x, game.core.head.y - 1);
 
         let state = game.observation();
         // Forward group is indices 0..2; food bit at index 1.
         assert_eq!(state[1], 1.0, "forward food bit must be 1 with food directly ahead");
         // Wall reciprocal for forward: distance from cell above head to wall = head.y - 1 cells
-        let expected_wall = 1.0 / game.head.y as f64;
+        let expected_wall = 1.0 / game.core.head.y as f64;
         assert!(
             (state[0] - expected_wall).abs() < 1e-9,
             "forward wall reciprocal = 1/head.y, got {}",
@@ -306,10 +222,10 @@ mod tests {
     #[test]
     fn observation_directional_food_sensor_detects_diagonal_food() {
         let mut game = GameDQN::new();
-        game.dir = FourDirs::Top;
-        game.head = Point::new(10, 10);
+        game.core.dir = FourDirs::Top;
+        game.core.head = Point::new(10, 10);
         // Place food diagonally top-left
-        game.food = Point::new(5, 5);
+        game.core.food = Point::new(5, 5);
 
         let state = game.observation();
         // Forward group = index 1, Left group = index 4, Right group = index 7
@@ -324,10 +240,10 @@ mod tests {
         // backward action. After any number of steps the heading sequence must
         // never contain an immediate 180-degree reversal.
         let mut game = GameDQN::new();
-        let mut prev_dir = game.dir;
+        let mut prev_dir = game.core.dir;
         for _ in 0..50 {
             let _ = game.step();
-            let new_dir = game.dir;
+            let new_dir = game.core.dir;
             assert!(
 !(prev_dir.is_horizontal() && new_dir.is_horizontal() && prev_dir != new_dir)
 && !(prev_dir.is_vertical() && new_dir.is_vertical() && prev_dir != new_dir),
@@ -345,11 +261,11 @@ break;
     #[test]
     fn swallow_animation_triggers_on_food_eaten_and_advances() {
         let mut game = GameDQN::new();
-        game.dir = FourDirs::Right;
-        game.head = Point::new(10, 10);
-        game.body = vec![Point::new(10, 10), Point::new(9, 10)];
+        game.core.dir = FourDirs::Right;
+        game.core.head = Point::new(10, 10);
+        game.core.body = vec![Point::new(10, 10), Point::new(9, 10)];
         // Put food directly in front of head
-        game.food = Point::new(11, 10);
+        game.core.food = Point::new(11, 10);
 
         // Force action to move forward (relative action 0 = forward)
         // We test eating logic directly by stepping when head hits food
@@ -357,8 +273,8 @@ break;
         let (_, done) = game.step();
         assert!(!done);
         if game.score > prev_score {
-            assert!(game.swallow.head_scale() > 0.0, "Head chew scale must be active");
-            assert!(game.swallow.bulge_at(0) > 0.0, "Bulge must start at index 0");
+            assert!(game.core.swallow.head_scale() > 0.0, "Head chew scale must be active");
+            assert!(game.core.swallow.bulge_at(0) > 0.0, "Bulge must start at index 0");
         }
     }
 
@@ -369,10 +285,10 @@ break;
         for _ in 0..100 {
             // Spawn food right in front to force eating often
             if rand::random::<f32>() < 0.3 {
-                let forward = game.dir.value();
-                let target = Point::new(game.head.x + forward.0, game.head.y + forward.1);
-                if !game.is_wall(target) {
-                    game.food = target;
+                let forward = game.core.dir.value();
+                let target = Point::new(game.core.head.x + forward.0, game.core.head.y + forward.1);
+                if !game.core.is_wall(target) {
+                    game.core.food = target;
                 }
             }
             let (_, done) = game.step();
@@ -382,27 +298,27 @@ break;
             }
 
             // Invariant 1: body[0] is always head
-            assert_eq!(game.body[0], game.head, "body[0] must always equal game.head");
+            assert_eq!(game.core.body[0], game.core.head, "body[0] must always equal game.head");
 
             // Invariant 2: body length is score + 1
             assert_eq!(
-                game.body.len(),
+                game.core.body.len(),
                 game.score + 1,
                 "body length must match score + 1"
             );
 
             // Invariant 3: every adjacent segment pair has Manhattan distance exactly 1
-            for i in 0..game.body.len() - 1 {
-                let dx = (game.body[i].x - game.body[i + 1].x).abs();
-                let dy = (game.body[i].y - game.body[i + 1].y).abs();
+            for i in 0..game.core.body.len() - 1 {
+                let dx = (game.core.body[i].x - game.core.body[i + 1].x).abs();
+                let dy = (game.core.body[i].y - game.core.body[i + 1].y).abs();
                 assert_eq!(
                     dx + dy,
                     1,
                     "Segment {} ({:?}) and {} ({:?}) must be adjacent (Manhattan distance 1)",
                     i,
-                    game.body[i],
+                    game.core.body[i],
                     i + 1,
-                    game.body[i + 1]
+                    game.core.body[i + 1]
                 );
             }
         }
@@ -415,4 +331,49 @@ break;
         assert_eq!(game.agent.get_epsilon(), 0.28);
         assert_eq!(game.agent.q_network.layers.len(), net.layers.len());
     }
+
+    #[test]
+    fn episode_can_exceed_step_limit_if_eating() {
+        let mut game = GameDQN::new();
+        // Total steps can reach high numbers (e.g. 500) as long as food was eaten recently
+        game.steps = 499;
+        game.core.steps_without_food = 5;
+        // Make sure snake won't hit wall or body
+        game.core.head = Point::new(10, 10);
+        game.core.body = vec![Point::new(10, 10), Point::new(9, 10)];
+        game.core.dir = FourDirs::Right;
+        let (_, done) = game.step();
+        assert!(!done, "Episode should not end if the snake has eaten recently");
+        assert!(!game.is_complete, "game.is_complete should be false");
+        assert_eq!(game.steps, 500);
+    }
+
+    #[test]
+    fn food_respawns_and_episode_continues_when_steps_without_food_exceeds_dynamic_limit() {
+        let mut game = GameDQN::new();
+        // Snake body size 15 => dynamic limit is 200 (for size 11..=20)
+        game.core.body = vec![Point::new(10, 10); 15];
+        game.score = 14;
+        assert_eq!(game.core.hunger_limit(), 200);
+
+        game.core.head = Point::new(10, 10);
+        game.core.dir = FourDirs::Right;
+        // Put food far away so it doesn't eat
+        game.core.food = Point::new(1, 1);
+
+        // At 198 steps without food, one step makes it 199 (less than 200)
+        game.core.steps_without_food = 198;
+        let (_reward, done) = game.step();
+        assert!(!done, "Should not terminate at 199 steps without food for snake size 15");
+        assert_eq!(game.core.steps_without_food, 199);
+
+        // Next step makes it 200 (>= 200), should respawn food and NOT terminate
+        let (reward, done) = game.step();
+        assert!(!done, "Episode should continue after apple decays");
+        assert!(!game.is_complete, "Snake should not die when apple rots");
+        assert_eq!(reward, -0.5, "Negative penalty applied for rotting apple");
+        assert_eq!(game.core.steps_without_food, 0, "Steps without food resets upon respawn");
+    }
 }
+
+
